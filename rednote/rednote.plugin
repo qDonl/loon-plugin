@@ -1,0 +1,32 @@
+#!name = 小红书黑名单
+#!desc = 笔记详情页注入「加入黑名单」按钮；首页推荐流自动过滤黑名单用户；数据持久化同步 iCloud
+#!author = qDonl
+#!icon = https://img.icons8.com/color/96/xiaohongshu.png
+
+# ============================================================
+# MITM
+# ============================================================
+[MITM]
+hostname = rec.xiaohongshu.com, www.xiaohongshu.com
+
+# ============================================================
+# Script
+# ============================================================
+[Script]
+
+# 1. 推荐流过滤: 拦截首页 homefeed 响应, 过滤黑名单用户并缓存 note_id -> user_id 映射
+http-response https://rec\.xiaohongshu\.com/api/sns/v\d+/homefeed script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/filter.js, requires-body=true, timeout=10, tag=rednot_filter
+
+# 2. 按钮注入: 在笔记详情页 HTML 里注入悬浮「加入黑名单」按钮
+#    小红书笔记详情在 WKWebView 中加载 www.xiaohongshu.com/explore/<note_id>
+http-response https://www\.xiaohongshu\.com/explore/.+ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/inject.js, requires-body=true, timeout=10, tag=rednot_inject
+
+# 3. 黑名单 Mock 接口: 拦截注入 JS 发出的 /__rednot/blacklist 请求, 不转发到服务器
+#    直接返回 mock response 并写入持久化存储
+http-request https://www\.xiaohongshu\.com/__rednot/blacklist script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednot_handler
+
+# ============================================================
+# Panel
+# ============================================================
+[Panel]
+rednot_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/panel.js, title=小红书黑名单, interval=3600

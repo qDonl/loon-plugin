@@ -1,5 +1,5 @@
 #!name = 小红书黑名单
-#!desc = 屏蔽不想看到的作者，支持三种添加方式：①列表页长按「不感兴趣」②笔记详情页悬浮按钮③插件配置手动输入用户ID。黑名单 iCloud 持久化，多设备同步。管理页（查看/删除/清空）：Safari 访问 http://rednot.manage（需 Loon 运行中）。
+#!desc = 屏蔽不想看到的作者，支持三种方式：①列表页长按「不感兴趣」②笔记详情页悬浮按钮③插件配置手动输入用户ID。黑名单 iCloud 持久化多设备同步。管理页（查看/删除/清空）：Loon 运行中用 Safari 访问 https://www.xiaohongshu.com/__rednot/manage
 #!author = qDonl
 #!homepage = https://github.com/qDonl/loon-plugin/tree/main/rednote
 
@@ -25,18 +25,20 @@ http-response https://rec\.xiaohongshu\.com/api/sns/v\d+/homefeed script-path=ht
 # ── 详情页：注入「加入黑名单」悬浮按钮（WebView） ────────────────
 http-response https://www\.xiaohongshu\.com/explore/.+ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/inject.js, requires-body=true, timeout=10, tag=rednot_inject
 
-# ── 详情页按钮的 Mock 接口 ──────────────────────────────────────
-http-request https://www\.xiaohongshu\.com/__rednot/blacklist script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednot_handler
+# ── 详情页按钮的 Mock 接口（add / check） ─────────────────────────
+http-request https://www\.xiaohongshu\.com/__rednot/blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednot_handler
 
-# ── Web 管理页：Safari 访问 http://rednot.manage 打开管理界面 ────
-# 提供完整黑名单列表、单条移除、一键清空功能
-http-request http://rednot\.manage/.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/manage.js, requires-body=false, timeout=10, tag=rednot_manage
+# ── Web 管理页：Safari 访问以下 URL 打开管理界面 ──────────────────
+# https://www.xiaohongshu.com/__rednot/manage
+# www.xiaohongshu.com 已在 MITM 列表，Loon 直接拦截，无需额外配置
+# 功能：展示完整黑名单（按来源分组）、单条移除、一键清空
+http-request https://www\.xiaohongshu\.com/__rednot/manage.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/manage.js, requires-body=false, timeout=10, tag=rednot_manage
 
 # ============================================================
 # Argument（插件配置页）
 # ============================================================
 [Argument]
-manual_blacklist = input,手动黑名单用户ID,"","填写要屏蔽的用户ID，多个以英文逗号分隔。用户ID在小红书主页 URL 的 /user/profile/<用户ID> 中找到。填完保存后下次刷新首页生效。查看/删除黑名单：Safari 访问 http://rednot.manage"
+manual_blacklist = input,手动黑名单用户ID,"","填写要屏蔽的用户ID，多个以英文逗号分隔。用户ID在小红书主页 URL 的 /user/profile/<用户ID> 中找到。填完保存后下次刷新首页生效。管理黑名单：Safari 访问 https://www.xiaohongshu.com/__rednot/manage（需 Loon 运行中）"
 
 # ============================================================
 # Panel

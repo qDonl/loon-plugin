@@ -15,9 +15,9 @@ hostname = rec.xiaohongshu.com, edith.xiaohongshu.com, www.xiaohongshu.com
 [Script]
 
 # ── 列表页：拦截「不感兴趣」HTTP 请求 ──────────────────────────
-# XHS 选中「不感兴趣」后向 edith.xiaohongshu.com 上报
-# 本规则拦截该请求，提取 note_id，写入黑名单，然后放行（XHS 推荐系统正常收到信号）
-http-request https://edith\.xiaohongshu\.com/api/sns/v\d+/note/not_interesting script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/not-interested.js, requires-body=true, timeout=10, tag=rednot_not_interested
+# 接口: POST edith.xiaohongshu.com/api/sns/v1/content/dislike/report
+# 请求体含 note_author_id，直接写入黑名单，然后放行（XHS 推荐算法正常收到信号）
+http-request https://edith\.xiaohongshu\.com/api/sns/v\d+/content/dislike/report script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/not-interested.js, requires-body=true, timeout=10, tag=rednot_not_interested
 
 # ── 列表页（兜底）：解析 homefeed request 里的 known_signal ────
 # XHS 也会把用户行为批量打包在下次 homefeed 请求里上报

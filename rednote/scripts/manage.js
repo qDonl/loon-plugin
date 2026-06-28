@@ -1,14 +1,15 @@
 /**
  * 小红书黑名单 Web 管理页
- * 拦截: https://www.xiaohongshu.com/__rednot/manage* (http-request)
+ * 拦截: http://rednot.manage* (http-request)
  *
- * 用法：Loon 运行中，Safari 访问 https://www.xiaohongshu.com/__rednot/manage
- * www.xiaohongshu.com 已在 MITM 列表，Loon 直接拦截并返回 HTML，无需 DNS 解析假域名。
+ * 用法：Loon 运行中，Safari 访问 http://rednot.manage
+ * [Host] 将 rednot.manage 解析为 127.0.0.1（使 DNS 不报错），
+ * Loon 在建立 TCP 连接前就用脚本规则拦截，返回 mock HTML，不会真正连接 127.0.0.1。
  *
- * 路由（均在 /__rednot/manage 下）：
- *   GET /manage           → 黑名单管理页（HTML）
- *   GET /manage/remove    → 移除单个用户  ?user_id=xxx
- *   GET /manage/clear     → 清空全部黑名单
+ * 路由：
+ *   GET /         → 黑名单管理页（HTML）
+ *   GET /remove   → 移除单个用户  ?user_id=xxx
+ *   GET /clear    → 清空全部黑名单
  */
 
 const BLACKLIST_KEY = "rednot_blacklist";
@@ -78,7 +79,7 @@ function fmtDate(iso) {
 
 function buildHTML(blacklist) {
   const total = blacklist.length;
-  const BASE  = "https://www.xiaohongshu.com/__rednot/manage";
+  const BASE  = "http://rednot.manage";
 
   const SOURCE = {
     manual:  { label: "手动配置", color: "#0055cc", bg: "#e5f0ff" },

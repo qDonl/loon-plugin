@@ -1,5 +1,5 @@
 #!name = 小红书黑名单
-#!desc = 长按「不感兴趣」自动屏蔽作者；详情页悬浮按钮一键屏蔽；黑名单 iCloud 持久化
+#!desc = 长按「不感兴趣」自动屏蔽作者；详情页悬浮按钮一键屏蔽；支持手动配置用户ID；黑名单 iCloud 持久化
 #!author = qDonl
 #!icon = https://img.icons8.com/color/96/xiaohongshu.png
 
@@ -32,6 +32,12 @@ http-response https://www\.xiaohongshu\.com/explore/.+ script-path=https://raw.g
 
 # ── 详情页按钮的 Mock 接口 ──────────────────────────────────────
 http-request https://www\.xiaohongshu\.com/__rednot/blacklist script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednot_handler
+
+# ============================================================
+# Argument（插件配置页参数）
+# ============================================================
+[Argument]
+manual_blacklist = input,手动黑名单用户ID,"","填写要屏蔽的用户ID，多个以英文逗号分隔。下次刷新首页时生效。用户ID可在小红书主页URL中找到（/user/profile/<用户ID>）"
 
 # ============================================================
 # Panel

@@ -1,5 +1,5 @@
 #!name = 小红书黑名单
-#!desc = 笔记详情页注入「加入黑名单」按钮；首页推荐流自动过滤黑名单用户；数据持久化同步 iCloud
+#!desc = 长按「不感兴趣」自动屏蔽作者；详情页悬浮按钮一键屏蔽；黑名单 iCloud 持久化
 #!author = qDonl
 #!icon = https://img.icons8.com/color/96/xiaohongshu.png
 
@@ -7,22 +7,30 @@
 # MITM
 # ============================================================
 [MITM]
-hostname = rec.xiaohongshu.com, www.xiaohongshu.com
+hostname = rec.xiaohongshu.com, edith.xiaohongshu.com, www.xiaohongshu.com
 
 # ============================================================
 # Script
 # ============================================================
 [Script]
 
-# 1. 推荐流过滤: 拦截首页 homefeed 响应, 过滤黑名单用户并缓存 note_id -> user_id 映射
+# ── 列表页：拦截「不感兴趣」HTTP 请求 ──────────────────────────
+# XHS 选中「不感兴趣」后向 edith.xiaohongshu.com 上报
+# 本规则拦截该请求，提取 note_id，写入黑名单，然后放行（XHS 推荐系统正常收到信号）
+http-request https://edith\.xiaohongshu\.com/api/sns/v\d+/note/not_interesting script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/not-interested.js, requires-body=true, timeout=10, tag=rednot_not_interested
+
+# ── 列表页（兜底）：解析 homefeed request 里的 known_signal ────
+# XHS 也会把用户行为批量打包在下次 homefeed 请求里上报
+# 首次运行会发调试通知，帮助确认「不感兴趣」对应的 action bitmask 值
+http-request https://rec\.xiaohongshu\.com/api/sns/v\d+/homefeed script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/known-signal.js, requires-body=false, timeout=10, tag=rednot_known_signal
+
+# ── 推荐流过滤：拦截 homefeed 响应，过滤黑名单用户 ─────────────
 http-response https://rec\.xiaohongshu\.com/api/sns/v\d+/homefeed script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/filter.js, requires-body=true, timeout=10, tag=rednot_filter
 
-# 2. 按钮注入: 在笔记详情页 HTML 里注入悬浮「加入黑名单」按钮
-#    小红书笔记详情在 WKWebView 中加载 www.xiaohongshu.com/explore/<note_id>
+# ── 详情页：注入「加入黑名单」悬浮按钮（WebView） ───────────────
 http-response https://www\.xiaohongshu\.com/explore/.+ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/inject.js, requires-body=true, timeout=10, tag=rednot_inject
 
-# 3. 黑名单 Mock 接口: 拦截注入 JS 发出的 /__rednot/blacklist 请求, 不转发到服务器
-#    直接返回 mock response 并写入持久化存储
+# ── 详情页按钮的 Mock 接口 ──────────────────────────────────────
 http-request https://www\.xiaohongshu\.com/__rednot/blacklist script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednot_handler
 
 # ============================================================

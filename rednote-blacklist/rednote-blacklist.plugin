@@ -1,0 +1,54 @@
+#!name = rednote-blacklist
+#!desc = 屏蔽不想看到的小红书作者，三种添加方式：①列表页长按「不感兴趣」②笔记详情页悬浮按钮③插件配置手动输入用户ID。黑名单 iCloud 持久化多设备同步。
+#!author = qDonl
+#!homepage = http://rednote.blacklist
+
+# ============================================================
+# Host
+# rednote.blacklist 为管理页入口域名，[Host] 让 Safari DNS 不报错。
+# Loon 在建连前拦截请求，$done({response}) 直接返回管理页 HTML，
+# 不会真正连接 127.0.0.1。
+# 插件详情页点击「主页」链接可直接跳转管理页（需 Loon 运行中）。
+# ============================================================
+[Host]
+rednote.blacklist = 127.0.0.1
+
+# ============================================================
+# MITM
+# ============================================================
+[MITM]
+hostname = rec.xiaohongshu.com, edith.xiaohongshu.com, www.xiaohongshu.com
+
+# ============================================================
+# Script
+# ============================================================
+[Script]
+
+# ── 管理页：http://rednote.blacklist ─────────────────────────
+# 插件详情页点「主页」直接跳转，或在 Safari 手动输入
+# 功能：完整黑名单列表（按来源分组）、单条移除、一键清空
+http-request http://rednote\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/manage.js, requires-body=false, timeout=10, tag=rednote_blacklist_manage
+
+# ── 列表页：拦截「不感兴趣」→ 同步写入黑名单 ─────────────────
+http-request https://edith\.xiaohongshu\.com/api/sns/v\d+/content/dislike/report script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/not-interested.js, requires-body=true, timeout=10, tag=rednote_blacklist_not_interested
+
+# ── 推荐流过滤：过滤黑名单用户 + 同步手动配置 ID ─────────────
+http-response https://rec\.xiaohongshu\.com/api/sns/v\d+/homefeed script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/filter.js, requires-body=true, timeout=10, tag=rednote_blacklist_filter
+
+# ── 详情页：注入「加入黑名单」悬浮按钮 ──────────────────────
+http-response https://www\.xiaohongshu\.com/explore/.+ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/inject.js, requires-body=true, timeout=10, tag=rednote_blacklist_inject
+
+# ── 详情页按钮 Mock 接口 ─────────────────────────────────────
+http-request https://www\.xiaohongshu\.com/__rednot/blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/blacklist-handler.js, requires-body=false, timeout=10, tag=rednote_blacklist_handler
+
+# ============================================================
+# Argument
+# ============================================================
+[Argument]
+manual_blacklist = input,手动黑名单用户ID,"","填写要屏蔽的用户ID，多个以英文逗号分隔。用户ID在小红书主页 URL 的 /user/profile/<用户ID> 中找到。填完保存后下次刷新首页生效。管理页：点插件详情「主页」或 Safari 访问 http://rednote.blacklist（需 Loon 运行中）"
+
+# ============================================================
+# Panel
+# ============================================================
+[Panel]
+rednote_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/rednote-blacklist/scripts/panel.js, title=rednote-blacklist, interval=3600

@@ -54,7 +54,7 @@ const SOURCE_LABEL = {
     if (group.length > 5) lines.push(`  … 另有 ${group.length - 5} 条`);
   });
 
-  lines.push("\n——\n管理页（查看/移除/清空）：\nSafari 访问 http://rednot.manage");
+  lines.push("\n——\n管理页：http://rednote.blacklist\n（或插件详情页点「主页」直接跳转）");
 
   $done({
     title:       `小红书黑名单 · ${blacklist.length} 人`,

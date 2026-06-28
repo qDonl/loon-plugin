@@ -1,9 +1,9 @@
 /**
  * 小红书黑名单 Web 管理页
- * 拦截: http://rednot.manage* (http-request)
+ * 拦截: http://rednote.blacklist* (http-request)
  *
- * 用法：Loon 运行中，Safari 访问 http://rednot.manage
- * [Host] 将 rednot.manage 解析为 127.0.0.1（使 DNS 不报错），
+ * 用法：Loon 运行中，Safari 访问 http://rednote.blacklist（或点插件详情「主页」链接）
+ * [Host] 将 rednote.blacklist 解析为 127.0.0.1（使 DNS 不报错），
  * Loon 在建立 TCP 连接前就用脚本规则拦截，返回 mock HTML，不会真正连接 127.0.0.1。
  *
  * 路由：
@@ -79,7 +79,7 @@ function fmtDate(iso) {
 
 function buildHTML(blacklist) {
   const total = blacklist.length;
-  const BASE  = "http://rednot.manage";
+  const BASE  = "http://rednote.blacklist";
 
   const SOURCE = {
     manual:  { label: "手动配置", color: "#0055cc", bg: "#e5f0ff" },

@@ -94,6 +94,17 @@
 #      ...
 #    ]
 #
+#  Key: bili_up_name_map
+#  类型: JSON Object
+#  说明: UP 主 UID → 昵称 反查表（内部使用，由 filter.js 维护）
+#       当 dislike.js 通过 avid 查不到 UP 名称时，用 UID 反查作为兜底。
+#       每次刷新首页时自动累积，无需手动管理。
+#  结构:
+#    {
+#      "<up_id>": "UP昵称",
+#      ...
+#    }
+#
 #  Key: bili_aid_meta_map
 #  类型: JSON Object
 #  说明: 视频元数据映射（内部使用，由 filter.js 维护）

@@ -19,6 +19,7 @@
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
 const META_MAP_KEY       = "bili_aid_meta_map";
+const UP_NAME_MAP_KEY    = "bili_up_name_map";
 
 function parseKV(str) {
   const params = {};
@@ -70,14 +71,16 @@ function mockSuccess() {
   const avid  = params.id  || "";
   const upMid = params.mid || "";
 
-  // 从 filter.js 维护的 meta_map 中查询 UP 名称和分区信息
-  const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
-  const meta    = metaMap[String(avid)] || {};
+  // 从 filter.js 维护的两张表中查询 UP 名称和分区信息
+  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)   || "{}");
+  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
+  const meta      = metaMap[String(avid)] || {};
 
   // ── UP 主黑名单 ────────────────────────────────────────────────
   if (reasonId === 4 || reasonId === 1001) {
     const upId   = upMid || String(meta.up_id || "");
-    const upName = meta.up_name || "";
+    // 优先用 avid 查详情，查不到再用 up_id 反查名称
+    const upName = meta.up_name || upNameMap[upId] || "";
     if (upId) addToUpBlacklist(upId, upName, "dislike");
     if (reasonId === 1001) return mockSuccess();
   }

@@ -95,24 +95,22 @@ function injectBlacklistReasons(item) {
   const blockedUps   = new Set(upBlacklist.map(u => String(u.up_id)));
   const blockedParts = new Set(partBlacklist.map(p => String(p.tid)));
 
-  // 维护 aid -> meta 映射（滚动累积，最多 300 条）
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
-  // 本次刷新产生的 up_id → up_name 批次
   const currentBatch = {};
 
-  let debugLogged = false;
+  // 调试：无条件通知，确认 filter.js 在执行
+  const firstItem = items[0] || {};
+  $notification.post(
+    "bili [调试] filter 执行",
+    `items=${items.length} firstGoto=${firstItem.goto}`,
+    `firstArgs=${JSON.stringify(firstItem.args || {}).slice(0, 100)}`
+  );
+  console.log(`[filter] items=${items.length}`);
+  console.log(`[filter] item[0]=${JSON.stringify(firstItem).slice(0, 200)}`);
+
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
-    // 调试：找到第一条有 up_id 的条目，发通知 + 写 log
-    if (!debugLogged && aid && args.up_id) {
-      const argKeys = Object.keys(args).join(", ");
-      const argSample = JSON.stringify(args).slice(0, 150);
-      $notification.post("bili [调试] filter args", `keys: ${argKeys}`, argSample);
-      console.log(`[filter] args keys: ${argKeys}`);
-      console.log(`[filter] args sample: ${argSample}`);
-      debugLogged = true;
-    }
     if (aid && args.up_id) {
       metaMap[aid] = {
         up_id:   String(args.up_id),

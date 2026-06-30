@@ -174,10 +174,11 @@ hostname = app.bilibili.com
 # ── 管理页：http://bili.blacklist ────────────────────────────
 http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/manage.js, requires-body=false, timeout=10, tag=bili_blacklist_manage
 
-# ── 首页推荐流：请求拦截（提取「不感兴趣」dislike 参数）──────────
-# 「不感兴趣」操作没有独立接口，B站将 dislike 参数打包进下次 feed 请求。
-# dislike.js 从请求的 query/body 中提取相关参数并写入本地黑名单。
-http-request https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/dislike.js, requires-body=true, timeout=10, tag=bili_blacklist_dislike
+# ── 「不感兴趣」拦截 ──────────────────────────────────────────────
+# 真实接口: GET https://app.bilibili.com/x/feed/dislike
+# 关键参数: reason_ids=4#1(UP) / 3#1(分区)，mid=UP_UID，id=avid
+# reason_id 4/1001 → UP 黑名单；reason_id 3/1002 → 分区黑名单
+http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/dislike.js, requires-body=false, timeout=10, tag=bili_blacklist_dislike
 
 # ── 首页推荐流：响应过滤 ─────────────────────────────────────────
 # 过滤非普通视频（广告/直播）+ 黑名单 UP + 黑名单分区

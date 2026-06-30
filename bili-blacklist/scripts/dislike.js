@@ -1,12 +1,19 @@
 /**
- * B站「不感兴趣」参数提取
- * 拦截: https://app.bilibili.com/x/v2/feed/index (http-request)
+ * B站「不感兴趣」拦截
+ * 拦截: https://app.bilibili.com/x/feed/dislike (http-request, GET)
  *
- * 「不感兴趣」操作没有独立接口，B站将 dislike 反馈参数打包进
- * 下一次 feed 刷新请求一起发送。本脚本拦截该请求，
- * 从请求 URL/body 中提取 dislike 相关参数并写入黑名单。
+ * 关键参数:
+ *   reason_ids  格式为 "{reasonId}#{subId}"，URL 编码后如 "4%231"
+ *               4 = 不感兴趣：UP主  |  3 = 不感兴趣：频道
+ *   mid         UP 主 UID
+ *   id          视频 avid，用于从 meta_map 查询 UP 名称和分区信息
  *
- * 调试通知会打印所有参数名，用于定位 B站实际使用的 dislike 字段名。
+ * 处理逻辑:
+ *   · reason_id 4  → 将 UP 加入黑名单，放行请求至 B站
+ *   · reason_id 3  → 将分区加入黑名单，放行请求至 B站
+ *   · reason_id 1001 (注入菜单) → 将 UP 加入黑名单，返回 mock 200（不转发）
+ *   · reason_id 1002 (注入菜单) → 将分区加入黑名单，返回 mock 200（不转发）
+ *   · 其他         → 直接放行
  */
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
@@ -42,46 +49,46 @@ function addToPartBlacklist(tid, tname) {
   $notification.post("哔哩哔哩黑名单", "已将分区加入黑名单", tname || `TID: ${tid}`);
 }
 
+function mockSuccess() {
+  $done({
+    response: {
+      status:  200,
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ code: 0, message: "OK", ttl: 1 }),
+    },
+  });
+}
+
 (function main() {
   const url      = $request.url || "";
   const queryStr = url.includes("?") ? url.split("?")[1] : "";
-  const bodyStr  = $request.body || "";
+  const params   = parseKV(queryStr);
 
-  // 合并 URL query 和 body 参数
-  const params = Object.assign({}, parseKV(queryStr), parseKV(bodyStr));
+  // reason_ids 格式: "4#1"（URL 解码后），取 # 前的数字作为主 reason_id
+  const reasonId = parseInt((params.reason_ids || "").split("#")[0], 10);
 
-  // ── 调试：无条件通知，确认脚本是否被执行 ──────────────────────────
-  // 只要 MITM 生效且脚本加载成功，每次 feed 请求都会弹出此通知
-  // 确认后删除此行
-  $notification.post("bili [调试]", "✅ dislike.js 已执行", `参数数量: ${Object.keys(params).length}  method: ${$request.method}`);
+  const avid  = params.id  || "";
+  const upMid = params.mid || "";
 
-  // ── 调试：打印所有参数名（首次执行时用于发现 dislike 字段名）──────
-  const allKeys = Object.keys(params).join(", ");
-  $notification.post("bili [调试] 参数名列表", `共 ${Object.keys(params).length} 个参数`, allKeys.slice(0, 200));
+  // 从 filter.js 维护的 meta_map 中查询 UP 名称和分区信息
+  const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
+  const meta    = metaMap[String(avid)] || {};
 
-  // ── 尝试已知的 dislike 参数格式 ─────────────────────────────────
-  // 格式 A: dislike_avid + dislike_goto + dislike_mid + reason_id（猜测）
-  const dislikeAvid   = params.dislike_avid || params.dislike_id || "";
-  const dislikeMid    = params.dislike_mid  || params.mid        || "";
-  const dislikeTid    = params.dislike_tid  || params.tid        || "";
-  const reasonId      = params.reason_id    || params.dislike_reason_id || "";
-
-  if (dislikeAvid) {
-    const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
-    const meta    = metaMap[String(dislikeAvid)] || {};
-
-    if (reasonId === "4" || reasonId === "1001") {
-      const upId   = String(dislikeMid || meta.up_id || "");
-      const upName = meta.up_name || "";
-      if (upId) addToUpBlacklist(upId, upName, "feed_request");
-    }
-
-    if (reasonId === "3" || reasonId === "1002") {
-      const tid   = String(dislikeTid || meta.tid || "");
-      const tname = meta.tname || "";
-      if (tid) addToPartBlacklist(tid, tname);
-    }
+  // ── UP 主黑名单 ────────────────────────────────────────────────
+  if (reasonId === 4 || reasonId === 1001) {
+    const upId   = upMid || String(meta.up_id || "");
+    const upName = meta.up_name || "";
+    if (upId) addToUpBlacklist(upId, upName, "dislike");
+    if (reasonId === 1001) return mockSuccess();
   }
 
-  $done({});   // 始终放行，不影响 B站正常请求
+  // ── 分区黑名单 ─────────────────────────────────────────────────
+  if (reasonId === 3 || reasonId === 1002) {
+    const tid   = String(meta.tid || "");
+    const tname = meta.tname || "";
+    if (tid) addToPartBlacklist(tid, tname);
+    if (reasonId === 1002) return mockSuccess();
+  }
+
+  $done({}); // 放行至 B站服务器
 })();

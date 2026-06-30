@@ -35,6 +35,25 @@ const REASON_ID_UP   = 1001;
 const REASON_ID_PART = 1002;
 
 /**
+ * 从 three_point_v2[type=dislike].reasons 提取 UP 名称和分区名称。
+ * reason id=4 的 name 格式: "UP主:xxx" → up_name = "xxx"
+ * reason id=3 的 name 格式: "频道:xxx" → tname   = "xxx"
+ */
+function extractNamesFromThreePoint(item) {
+  const result = { up_name: "", tname: "" };
+  if (!Array.isArray(item.three_point_v2)) return result;
+  const dislikeEntry = item.three_point_v2.find(e => e.type === "dislike");
+  if (!dislikeEntry || !Array.isArray(dislikeEntry.reasons)) return result;
+  for (const r of dislikeEntry.reasons) {
+    if (r.id === 4 && r.name && !result.up_name)
+      result.up_name = r.name.replace(/^UP主[：:]\s*/, "").trim();
+    if (r.id === 3 && r.name && !result.tname)
+      result.tname = r.name.replace(/^(频道|分区)[：:]\s*/, "").trim();
+  }
+  return result;
+}
+
+/**
  * 向单张视频卡片的两处三点菜单结构注入自定义黑名单选项。
  * extend 字段携带结构化数据，dislike.js 从中直接读取，
  * 免去 meta_map 查询的不确定性。
@@ -101,15 +120,22 @@ function injectBlacklistReasons(item) {
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
-    if (aid && args.up_id) {
-      metaMap[aid] = {
-        up_id:   String(args.up_id),
-        up_name: args.up_name || "",
-        tid:     String(args.tid   || ""),
-        tname:   args.tname  || "",
-      };
-      if (args.up_name) currentBatch[String(args.up_id)] = args.up_name;
-    }
+    if (!aid || !args.up_id) return;
+
+    // 从 three_point_v2[dislike] 里提取名称，作为 args 字段的兜底
+    // 即使其他插件改动了 args，B站渲染菜单用的 three_point_v2 通常不受影响
+    const tp = extractNamesFromThreePoint(item);
+
+    const upName = args.up_name || tp.up_name || "";
+    const tname  = args.tname   || tp.tname   || "";
+
+    metaMap[aid] = {
+      up_id:   String(args.up_id),
+      up_name: upName,
+      tid:     String(args.tid || ""),
+      tname,
+    };
+    if (upName) currentBatch[String(args.up_id)] = upName;
   });
 
   const mapKeys = Object.keys(metaMap);

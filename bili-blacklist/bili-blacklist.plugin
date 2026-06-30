@@ -161,7 +161,6 @@ bili.blacklist = 127.0.0.1
 
 # ============================================================
 # MITM
-# 需要对 app.bilibili.com 进行 MITM 才能拦截 HTTPS 请求。
 # 首次使用请确保 Loon 已安装并信任 CA 证书。
 # ============================================================
 [MITM]
@@ -175,11 +174,12 @@ hostname = app.bilibili.com
 # ── 管理页：http://bili.blacklist ────────────────────────────
 http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/manage.js, requires-body=false, timeout=10, tag=bili_blacklist_manage
 
-# ── 「不感兴趣」拦截：捕获 UP主/分区 选择，写入黑名单 ──────────
-# reason_id=4 → UP主黑名单；reason_id=3 → 分区黑名单
-http-request https://app\.bilibili\.com/x/feed/dislike$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/dislike.js, requires-body=true, timeout=10, tag=bili_blacklist_dislike
+# ── 首页推荐流：请求拦截（提取「不感兴趣」dislike 参数）──────────
+# 「不感兴趣」操作没有独立接口，B站将 dislike 参数打包进下次 feed 请求。
+# dislike.js 从请求的 query/body 中提取相关参数并写入本地黑名单。
+http-request https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/dislike.js, requires-body=true, timeout=10, tag=bili_blacklist_dislike
 
-# ── 首页推荐流过滤 ────────────────────────────────────────────
+# ── 首页推荐流：响应过滤 ─────────────────────────────────────────
 # 过滤非普通视频（广告/直播）+ 黑名单 UP + 黑名单分区
 http-response https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/filter.js, requires-body=true, timeout=10, tag=bili_blacklist_filter
 

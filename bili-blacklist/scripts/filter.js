@@ -114,6 +114,9 @@ function injectBlacklistReasons(item) {
   }
   $persistentStore.write(JSON.stringify(metaMap), META_MAP_KEY);
 
+  // 调试：无条件通知，确认 filter.js 是否被执行
+  $notification.post("bili [调试]", "✅ filter.js 已执行", `共 ${items.length} 条 items，UP黑名单 ${blockedUps.size} 个`);
+
   // 过滤 + 注入
   const total = items.length;
   let adCount = 0, liveCount = 0, upCount = 0, partCount = 0;

@@ -130,22 +130,23 @@ function injectBlacklistReasons(item) {
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
-    if (!aid || !args.up_id) return;
+    if (!aid) return;
 
-    // 从 three_point_v2[dislike] 里提取名称，作为 args 字段的兜底
+    // 从 three_point_v2[dislike] 里提取名称和分区，作为 args 字段的兜底
     // 即使其他插件改动了 args，B站渲染菜单用的 three_point_v2 通常不受影响
     const tp = extractNamesFromThreePoint(item);
 
+    const upId   = String(args.up_id || "");
     const upName = args.up_name || tp.up_name || "";
+    const tid    = String(args.tid || "");
     const tname  = args.tname   || tp.tname   || "";
 
-    metaMap[aid] = {
-      up_id:   String(args.up_id),
-      up_name: upName,
-      tid:     String(args.tid || ""),
-      tname,
-    };
-    if (upName) currentBatch[String(args.up_id)] = upName;
+    // 即使 args.up_id 被其他插件清空，也凭 avid 记录名称
+    // dislike.js 从 dislike 请求的 mid 参数直接得到 up_id，metaMap 只需提供 up_name
+    if (upId || upName || tid || tname) {
+      metaMap[aid] = { up_id: upId, up_name: upName, tid, tname };
+    }
+    if (upId && upName) currentBatch[upId] = upName;
   });
 
   const mapKeys = Object.keys(metaMap);

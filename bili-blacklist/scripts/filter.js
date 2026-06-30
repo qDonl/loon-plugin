@@ -98,15 +98,12 @@ function injectBlacklistReasons(item) {
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
   const currentBatch = {};
 
-  // 调试：无条件通知，确认 filter.js 在执行
-  const firstItem = items[0] || {};
-  $notification.post(
-    "bili [调试] filter 执行",
-    `items=${items.length} firstGoto=${firstItem.goto}`,
-    `firstArgs=${JSON.stringify(firstItem.args || {}).slice(0, 100)}`
-  );
+  // 调试：打印 args 字段内容
+  const firstWithArgs = items.find(i => i.args && i.args.up_id) || items[0] || {};
+  const dbgArgs = JSON.stringify(firstWithArgs.args || {});
+  $notification.post("bili [调试] filter args", `items=${items.length} goto=${firstWithArgs.goto}`, dbgArgs.slice(0, 150));
   console.log(`[filter] items=${items.length}`);
-  console.log(`[filter] item[0]=${JSON.stringify(firstItem).slice(0, 200)}`);
+  console.log(`[filter] args=${dbgArgs}`);
 
   items.forEach(item => {
     const aid  = String(item.param || "");

@@ -100,9 +100,16 @@ function injectBlacklistReasons(item) {
   // 本次刷新产生的 up_id → up_name 批次
   const currentBatch = {};
 
+  let debugLogged = false;
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
+    // 调试：打印第一条有 up_id 的 args 完整结构
+    if (!debugLogged && aid && args.up_id) {
+      console.log(`[filter] args keys: ${Object.keys(args).join(", ")}`);
+      console.log(`[filter] args sample: ${JSON.stringify(args).slice(0, 200)}`);
+      debugLogged = true;
+    }
     if (aid && args.up_id) {
       metaMap[aid] = {
         up_id:   String(args.up_id),

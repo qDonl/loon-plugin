@@ -23,13 +23,12 @@
  *  dislike.js 同时处理原生 id 和自定义 id，两条路都能写黑名单。
  */
 
-const UP_BLACKLIST_KEY    = "bili_up_blacklist";
-const PART_BLACKLIST_KEY  = "bili_partition_blacklist";
-const META_MAP_KEY        = "bili_aid_meta_map";
-const UP_NAME_MAP_KEY     = "bili_up_name_map";     // 合并后的平铺反查表，供 dislike.js 读取
-const UP_NAME_BATCHES_KEY = "bili_up_name_batches"; // 最近 N 次刷新的批次数组
-const META_MAP_MAX        = 300;
-const NAME_BATCH_MAX      = 10;
+const UP_BLACKLIST_KEY   = "bili_up_blacklist";
+const PART_BLACKLIST_KEY = "bili_partition_blacklist";
+const META_MAP_KEY       = "bili_aid_meta_map";
+const UP_NAME_CACHE_KEY  = "bili_up_name_cache"; // 持久化 UP 名称缓存，最多 50 条
+const META_MAP_MAX       = 300;
+const UP_NAME_CACHE_MAX  = 50;
 
 const REASON_ID_UP   = 1001;
 const REASON_ID_PART = 1002;
@@ -115,25 +114,14 @@ function injectBlacklistReasons(item) {
   const blockedParts = new Set(partBlacklist.map(p => String(p.tid)));
 
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
-  const currentBatch = {};
-
-  // 调试：找第一条有 three_point_v2 的 av 卡片，打印 dislike reasons
-  const dbgItem = items.find(i => i.goto === "av" && Array.isArray(i.three_point_v2)) || items[0];
-  if (dbgItem) {
-    const dislikeEntry = (dbgItem.three_point_v2 || []).find(e => e.type === "dislike");
-    const reasons = dislikeEntry ? JSON.stringify(dislikeEntry.reasons) : "no-dislike-entry";
-    $notification.post("bili [调试] filter tp2", `items=${items.length} goto=${dbgItem.goto}`, reasons.slice(0, 200));
-    console.log(`[filter] tp2 reasons: ${reasons.slice(0, 300)}`);
-    console.log(`[filter] args: ${JSON.stringify(dbgItem.args || {})}`);
-  }
+  const newNames = {}; // up_id → up_name，本次刷新收集到的
 
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
     if (!aid) return;
 
-    // 从 three_point_v2[dislike] 里提取名称和分区，作为 args 字段的兜底
-    // 即使其他插件改动了 args，B站渲染菜单用的 three_point_v2 通常不受影响
+    // args 字段可能被其他插件清空，从 three_point_v2[dislike] 兜底提取
     const tp = extractNamesFromThreePoint(item);
 
     const upId   = String(args.up_id || "");
@@ -141,12 +129,10 @@ function injectBlacklistReasons(item) {
     const tid    = String(args.tid || "");
     const tname  = args.tname   || tp.tname   || "";
 
-    // 即使 args.up_id 被其他插件清空，也凭 avid 记录名称
-    // dislike.js 从 dislike 请求的 mid 参数直接得到 up_id，metaMap 只需提供 up_name
     if (upId || upName || tid || tname) {
       metaMap[aid] = { up_id: upId, up_name: upName, tid, tname };
     }
-    if (upId && upName) currentBatch[upId] = upName;
+    if (upId && upName) newNames[upId] = upName;
   });
 
   const mapKeys = Object.keys(metaMap);
@@ -155,14 +141,15 @@ function injectBlacklistReasons(item) {
   }
   $persistentStore.write(JSON.stringify(metaMap), META_MAP_KEY);
 
-  // 滚动批次：保留最近 NAME_BATCH_MAX 次刷新的数据
-  const batches = JSON.parse($persistentStore.read(UP_NAME_BATCHES_KEY) || "[]");
-  batches.unshift(currentBatch);
-  if (batches.length > NAME_BATCH_MAX) batches.length = NAME_BATCH_MAX;
-  // 将所有批次合并为平铺表（新批次覆盖旧批次的同名条目）
-  const upNameMap = Object.assign({}, ...batches.slice().reverse());
-  $persistentStore.write(JSON.stringify(batches),   UP_NAME_BATCHES_KEY);
-  $persistentStore.write(JSON.stringify(upNameMap), UP_NAME_MAP_KEY);
+  // 持久化 UP 名称缓存：最多保留 50 条，最近出现的在前
+  const nameCache = JSON.parse($persistentStore.read(UP_NAME_CACHE_KEY) || "[]");
+  Object.entries(newNames).forEach(([upId, upName]) => {
+    const idx = nameCache.findIndex(e => e.up_id === upId);
+    if (idx >= 0) nameCache.splice(idx, 1); // 已有则先移除，重新插到最前
+    nameCache.unshift({ up_id: upId, up_name: upName });
+  });
+  if (nameCache.length > UP_NAME_CACHE_MAX) nameCache.length = UP_NAME_CACHE_MAX;
+  $persistentStore.write(JSON.stringify(nameCache), UP_NAME_CACHE_KEY);
 
   // 过滤 + 注入
   const total = items.length;

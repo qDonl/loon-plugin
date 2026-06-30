@@ -5,16 +5,17 @@
  * 用法：Loon 运行中，Safari 访问 http://bili.blacklist（或点插件详情「主页」链接）
  *
  * 路由:
- *   GET /              → 管理主页（UP主 / 分区 两个 tab）
- *   GET /remove-up     → 移除单个 UP    ?up_id=xxx
- *   GET /remove-part   → 移除单个分区   ?tid=xxx
+ *   GET /              → 管理主页（UP主 / 分区 / 名称缓存 三个 tab）
+ *   GET /remove-up     → 移除单个 UP       ?up_id=xxx
+ *   GET /remove-part   → 移除单个分区       ?tid=xxx
  *   GET /clear-up      → 清空 UP 黑名单
  *   GET /clear-part    → 清空分区黑名单
+ *   GET /clear-cache   → 清空 UP 名称缓存
  */
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
-const UP_NAME_MAP_KEY    = "bili_up_name_map";
+const UP_NAME_CACHE_KEY  = "bili_up_name_cache";
 const META_MAP_KEY       = "bili_aid_meta_map";
 
 (function main() {
@@ -28,19 +29,18 @@ const META_MAP_KEY       = "bili_aid_meta_map";
     if (i > 0) params[decodeURIComponent(p.slice(0, i))] = decodeURIComponent(p.slice(i + 1));
   });
 
-  const upList    = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY)   || "[]");
-  const partList  = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
-  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY)   || "{}");
-  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)      || "{}");
-  const metaValues = Object.values(metaMap);
+  const upList   = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY)   || "[]");
+  const partList = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
+  const nameCache= JSON.parse($persistentStore.read(UP_NAME_CACHE_KEY)  || "[]");
+  const metaMap  = JSON.parse($persistentStore.read(META_MAP_KEY)       || "{}");
 
-  // 补全 up_name 为空的条目，三级查找，找到后持久化写回
+  // 补全黑名单里 up_name 为空的条目：从名称缓存和 metaMap 里找
   let needsSave = false;
   upList.forEach(u => {
     if (u.up_name) return;
     const id = String(u.up_id);
-    const found = upNameMap[id]
-      || (metaValues.find(e => String(e.up_id) === id && e.up_name) || {}).up_name
+    const found = (nameCache.find(e => e.up_id === id) || {}).up_name
+      || (Object.values(metaMap).find(e => String(e.up_id) === id && e.up_name) || {}).up_name
       || "";
     if (found) { u.up_name = found; needsSave = true; }
   });
@@ -72,11 +72,16 @@ const META_MAP_KEY       = "bili_aid_meta_map";
     return jsonDone({ success: true, count: 0 });
   }
 
+  if (pathFull.endsWith("/clear-cache")) {
+    $persistentStore.write("[]", UP_NAME_CACHE_KEY);
+    return jsonDone({ success: true, count: 0 });
+  }
+
   $done({
     response: {
       status:  200,
       headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
-      body:    buildHTML(upList, partList),
+      body:    buildHTML(upList, partList, nameCache),
     },
   });
 })();
@@ -149,16 +154,37 @@ function buildPartRows(partList) {
   return rows;
 }
 
-function buildHTML(upList, partList) {
+function buildCacheRows(nameCache) {
+  if (nameCache.length === 0) {
+    return `<div class="empty"><span class="eico">🗂️</span>名称缓存为空<br><small>下拉刷新首页后自动填充</small></div>`;
+  }
+  let rows = "";
+  nameCache.forEach((e, i, arr) => {
+    const sep = i < arr.length - 1 ? " sep" : "";
+    rows += `
+<div class="item${sep}">
+  <div class="info">
+    <div class="name">${esc(e.up_name)}</div>
+    <div class="sub">UID: ${esc(e.up_id)}</div>
+  </div>
+</div>`;
+  });
+  return rows;
+}
+
+function buildHTML(upList, partList, nameCache) {
   const BASE     = "http://bili.blacklist";
   const upRows   = buildUpRows(upList);
   const partRows = buildPartRows(partList);
+  const cacheRows= buildCacheRows(nameCache);
 
   const upCard   = upList.length   > 0 ? `<div class="sec-title">已屏蔽 ${upList.length} 位 UP 主</div><div class="card">${upRows}</div>` : upRows;
   const partCard = partList.length > 0 ? `<div class="sec-title">已屏蔽 ${partList.length} 个分区</div><div class="card">${partRows}</div>` : partRows;
+  const cacheCard= nameCache.length > 0 ? `<div class="sec-title">已缓存 ${nameCache.length} 位 UP 主（最多 50 条）</div><div class="card">${cacheRows}</div>` : cacheRows;
 
-  const upClearBtn   = upList.length   > 0 ? `<button class="clear-btn" onclick="clearUp(${upList.length})">清空全部 ${upList.length} 位 UP 黑名单</button>` : "";
-  const partClearBtn = partList.length > 0 ? `<button class="clear-btn" onclick="clearPart(${partList.length})">清空全部 ${partList.length} 个分区黑名单</button>` : "";
+  const upClearBtn    = upList.length   > 0 ? `<button class="clear-btn" onclick="clearUp(${upList.length})">清空全部 ${upList.length} 位 UP 黑名单</button>` : "";
+  const partClearBtn  = partList.length > 0 ? `<button class="clear-btn" onclick="clearPart(${partList.length})">清空全部 ${partList.length} 个分区黑名单</button>` : "";
+  const cacheClearBtn = nameCache.length > 0 ? `<button class="clear-btn" onclick="clearCache(${nameCache.length})">清空全部 ${nameCache.length} 条名称缓存</button>` : "";
 
   return `<!DOCTYPE html>
 <html lang="zh">
@@ -174,7 +200,7 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
 .topbar h1{font-size:17px;font-weight:700}
 .topbar .cnt{font-size:13px;color:#8e8e93}
 .tabs{display:flex;padding:0 16px}
-.tab{flex:1;padding:10px 0;text-align:center;font-size:15px;font-weight:500;color:#8e8e93;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s,border-color .15s}
+.tab{flex:1;padding:10px 0;text-align:center;font-size:14px;font-weight:500;color:#8e8e93;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s,border-color .15s}
 .tab.active{color:#fb7299;border-bottom-color:#fb7299}
 .pane{display:none;padding-top:4px}
 .pane.active{display:block}
@@ -194,6 +220,7 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
 .tip{margin:16px 16px 0;background:#fff;border-radius:12px;padding:16px}
 .tip h3{font-size:14px;font-weight:600;margin-bottom:10px;color:#1c1c1e}
 .tip li{font-size:14px;color:#444;line-height:2;margin-left:18px}
+.cache-tip{margin:16px 16px 0;background:#fff3cd;border-radius:12px;padding:14px 16px;font-size:13px;color:#856404;line-height:1.6}
 </style>
 </head>
 <body>
@@ -205,6 +232,7 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
   <div class="tabs">
     <div class="tab active" onclick="switchPane('up',this)">UP 主 · ${upList.length}</div>
     <div class="tab" onclick="switchPane('part',this)">分区 · ${partList.length}</div>
+    <div class="tab" onclick="switchPane('cache',this)">名称缓存 · ${nameCache.length}</div>
   </div>
 </div>
 
@@ -236,6 +264,15 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
   </div>
 </div>
 
+<div id="pane-cache" class="pane">
+  ${cacheCard}
+  <div class="actions">${cacheClearBtn}</div>
+  <div class="cache-tip">
+    每次下拉刷新首页时自动填充，保留最近 50 位出现过的 UP 主名称。<br>
+    点「不感兴趣→UP主」时，插件从此缓存里查找对应名称。
+  </div>
+</div>
+
 <script>
 const BASE = '${BASE}';
 function switchPane(id, el) {
@@ -261,6 +298,10 @@ function clearUp(n) {
 function clearPart(n) {
   if (!confirm('确认清空全部 ' + n + ' 个分区黑名单？\\n此操作不可恢复。')) return;
   fetch(BASE + '/clear-part').then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function clearCache(n) {
+  if (!confirm('确认清空全部 ' + n + ' 条名称缓存？')) return;
+  fetch(BASE + '/clear-cache').then(r => r.json()).then(d => { if (d.success) location.reload(); });
 }
 </script>
 </body>

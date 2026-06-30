@@ -117,6 +117,16 @@ function injectBlacklistReasons(item) {
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
   const currentBatch = {};
 
+  // 调试：找第一条有 three_point_v2 的 av 卡片，打印 dislike reasons
+  const dbgItem = items.find(i => i.goto === "av" && Array.isArray(i.three_point_v2)) || items[0];
+  if (dbgItem) {
+    const dislikeEntry = (dbgItem.three_point_v2 || []).find(e => e.type === "dislike");
+    const reasons = dislikeEntry ? JSON.stringify(dislikeEntry.reasons) : "no-dislike-entry";
+    $notification.post("bili [调试] filter tp2", `items=${items.length} goto=${dbgItem.goto}`, reasons.slice(0, 200));
+    console.log(`[filter] tp2 reasons: ${reasons.slice(0, 300)}`);
+    console.log(`[filter] args: ${JSON.stringify(dbgItem.args || {})}`);
+  }
+
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};

@@ -79,6 +79,11 @@ function mockSuccess() {
   const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
   const meta      = metaMap[String(avid)] || {};
 
+  // 调试日志
+  console.log(`[dislike] avid=${avid} upMid=${upMid} reasonId=${reasonId}`);
+  console.log(`[dislike] metaMapKeys=${Object.keys(metaMap).length} meta=${JSON.stringify(meta)}`);
+  console.log(`[dislike] upNameMapKeys=${Object.keys(upNameMap).length} upNameHit=${upNameMap[upMid] || "(empty)"}`);
+
   // ── UP 主黑名单 ────────────────────────────────────────────────
   if (reasonId === 4 || reasonId === 1001) {
     const upId = upMid || String(meta.up_id || "");

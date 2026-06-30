@@ -14,6 +14,7 @@
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
+const UP_NAME_MAP_KEY    = "bili_up_name_map";
 
 (function main() {
   const url      = $request.url || "";
@@ -28,6 +29,14 @@ const PART_BLACKLIST_KEY = "bili_partition_blacklist";
 
   const upList   = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY)   || "[]");
   const partList = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
+  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY)  || "{}");
+
+  // 补全 up_name 为空的条目（历史数据修复）
+  upList.forEach(u => {
+    if (!u.up_name && upNameMap[String(u.up_id)]) {
+      u.up_name = upNameMap[String(u.up_id)];
+    }
+  });
 
   if (pathFull.endsWith("/remove-up")) {
     const upId = params.up_id;

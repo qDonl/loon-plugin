@@ -104,10 +104,13 @@ function injectBlacklistReasons(item) {
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};
-    // 调试：打印第一条有 up_id 的 args 完整结构
+    // 调试：找到第一条有 up_id 的条目，发通知 + 写 log
     if (!debugLogged && aid && args.up_id) {
-      console.log(`[filter] args keys: ${Object.keys(args).join(", ")}`);
-      console.log(`[filter] args sample: ${JSON.stringify(args).slice(0, 200)}`);
+      const argKeys = Object.keys(args).join(", ");
+      const argSample = JSON.stringify(args).slice(0, 150);
+      $notification.post("bili [调试] filter args", `keys: ${argKeys}`, argSample);
+      console.log(`[filter] args keys: ${argKeys}`);
+      console.log(`[filter] args sample: ${argSample}`);
       debugLogged = true;
     }
     if (aid && args.up_id) {

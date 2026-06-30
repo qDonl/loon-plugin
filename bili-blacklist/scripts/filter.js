@@ -7,12 +7,64 @@
  *  2. 过滤黑名单 UP 主的视频
  *  3. 过滤黑名单分区的视频
  *  4. 维护 aid -> meta 映射，供 dislike.js 查询 UP 名称/分区名称
+ *  5. 向每张视频卡片的三点菜单注入「屏蔽UP」「屏蔽分区」选项
  */
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
 const META_MAP_KEY       = "bili_aid_meta_map";
 const META_MAP_MAX       = 300;
+
+// 自定义 reason_id，避免与 B站原生 id 冲突
+const REASON_ID_UP   = 1001;
+const REASON_ID_PART = 1002;
+
+/**
+ * 向单张卡片的三点菜单注入黑名单选项
+ * 同时写入 three_point.dislike_reasons 和 three_point_v2[dislike].reasons，
+ * 兼容 B站不同版本的菜单渲染逻辑。
+ */
+function injectBlacklistReasons(item) {
+  const args   = item.args || {};
+  const upId   = String(args.up_id  || "");
+  const upName = args.up_name  || "";
+  const tid    = String(args.tid    || "");
+  const tname  = args.tname   || "";
+
+  if (!upId && !tid) return;
+
+  // 注入的 reason 条目
+  // extend 字段存储结构化数据，dislike.js 从请求体中尝试读取；
+  // 即使 B站客户端不上报 extend，dislike.js 也会从 meta_map 兜底查取。
+  const upReason = upId ? {
+    id:     REASON_ID_UP,
+    name:   `🚫 屏蔽 UP：${upName || upId}`,
+    toast:  "已加入UP黑名单，下次刷新生效",
+    extend: JSON.stringify({ up_id: upId, up_name: upName }),
+  } : null;
+
+  const partReason = tid ? {
+    id:     REASON_ID_PART,
+    name:   `🚫 屏蔽分区：${tname || tid}`,
+    toast:  "已加入分区黑名单，下次刷新生效",
+    extend: JSON.stringify({ tid, tname }),
+  } : null;
+
+  // ── three_point.dislike_reasons（旧格式） ──────────────────
+  if (item.three_point && Array.isArray(item.three_point.dislike_reasons)) {
+    if (upReason)   item.three_point.dislike_reasons.unshift(upReason);
+    if (partReason) item.three_point.dislike_reasons.unshift(partReason);
+  }
+
+  // ── three_point_v2[type=dislike].reasons（新格式） ──────────
+  if (Array.isArray(item.three_point_v2)) {
+    const dislikeEntry = item.three_point_v2.find(e => e.type === "dislike");
+    if (dislikeEntry && Array.isArray(dislikeEntry.reasons)) {
+      if (upReason)   dislikeEntry.reasons.unshift(upReason);
+      if (partReason) dislikeEntry.reasons.unshift(partReason);
+    }
+  }
+}
 
 (function main() {
   const rawBody = $response.body;
@@ -31,7 +83,7 @@ const META_MAP_MAX       = 300;
   const blockedUps   = new Set(upBlacklist.map(u => String(u.up_id)));
   const blockedParts = new Set(partBlacklist.map(p => String(p.tid)));
 
-  // 维护 aid -> meta 映射（供 dislike.js 查名称）
+  // 维护 aid -> meta 映射
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
 
   items.forEach(item => {
@@ -53,7 +105,7 @@ const META_MAP_MAX       = 300;
   }
   $persistentStore.write(JSON.stringify(metaMap), META_MAP_KEY);
 
-  // 过滤
+  // 过滤 + 注入
   const total = items.length;
   let adCount = 0, liveCount = 0, upCount = 0, partCount = 0;
 
@@ -75,8 +127,11 @@ const META_MAP_MAX       = 300;
     const upId = String(args.up_id || "");
     const tid  = String(args.tid   || "");
 
-    if (upId && blockedUps.has(upId)) { upCount++;   return false; }
-    if (tid  && blockedParts.has(tid)) { partCount++; return false; }
+    if (upId && blockedUps.has(upId))   { upCount++;   return false; }
+    if (tid  && blockedParts.has(tid))  { partCount++; return false; }
+
+    // 向通过过滤的卡片注入黑名单菜单项
+    injectBlacklistReasons(item);
 
     return true;
   });

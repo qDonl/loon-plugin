@@ -50,15 +50,14 @@ function addToPartBlacklist(tid, tname) {
   // 合并 URL query 和 body 参数
   const params = Object.assign({}, parseKV(queryStr), parseKV(bodyStr));
 
-  // ── 调试：打印本次请求中与 dislike/feedback 相关的所有参数 ──────
-  // 确认 dislike 信息在哪个字段后可删除此段
-  const debugKeys = Object.keys(params).filter(k =>
-    /dislike|not_interest|feedback|reason|rcmd_reason|goto|avid|aid/.test(k)
-  );
-  if (debugKeys.length > 0) {
-    const info = debugKeys.map(k => `${k}=${String(params[k]).slice(0, 40)}`).join("\n");
-    $notification.post("bili [调试] feed 请求参数", `共 ${debugKeys.length} 个相关参数`, info);
-  }
+  // ── 调试：无条件通知，确认脚本是否被执行 ──────────────────────────
+  // 只要 MITM 生效且脚本加载成功，每次 feed 请求都会弹出此通知
+  // 确认后删除此行
+  $notification.post("bili [调试]", "✅ dislike.js 已执行", `参数数量: ${Object.keys(params).length}  method: ${$request.method}`);
+
+  // ── 调试：打印所有参数名（首次执行时用于发现 dislike 字段名）──────
+  const allKeys = Object.keys(params).join(", ");
+  $notification.post("bili [调试] 参数名列表", `共 ${Object.keys(params).length} 个参数`, allKeys.slice(0, 200));
 
   // ── 尝试已知的 dislike 参数格式 ─────────────────────────────────
   // 格式 A: dislike_avid + dislike_goto + dislike_mid + reason_id（猜测）

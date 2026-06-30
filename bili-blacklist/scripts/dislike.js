@@ -2,18 +2,17 @@
  * B站「不感兴趣」拦截
  * 拦截: https://app.bilibili.com/x/feed/dislike (http-request, GET)
  *
- * 关键参数:
- *   reason_ids  格式为 "{reasonId}#{subId}"，URL 编码后如 "4%231"
- *               4 = 不感兴趣：UP主  |  3 = 不感兴趣：频道
- *   mid         UP 主 UID
- *   id          视频 avid，用于从 meta_map 查询 UP 名称和分区信息
+ * UP 名称获取策略（按优先级）：
+ *   1. metaMap[avid].up_name      — 精确命中（filter.js 写入）
+ *   2. upNameMap[up_id]           — 近 10 次刷新缓存
+ *   3. 扫描整个 metaMap            — 近 300 条视频里同 UP 任意一条
+ *   4. 调用 B站公开 API            — 以上均失败时兜底（异步）
  *
- * 处理逻辑:
- *   · reason_id 4  → 将 UP 加入黑名单，放行请求至 B站
- *   · reason_id 3  → 将分区加入黑名单，放行请求至 B站
- *   · reason_id 1001 (注入菜单) → 将 UP 加入黑名单，返回 mock 200（不转发）
- *   · reason_id 1002 (注入菜单) → 将分区加入黑名单，返回 mock 200（不转发）
- *   · 其他         → 直接放行
+ * reason_id 处理:
+ *   4    → UP 黑名单，放行至 B站
+ *   3    → 分区黑名单，放行至 B站
+ *   1001 → UP 黑名单（注入菜单），返回 mock 200
+ *   1002 → 分区黑名单（注入菜单），返回 mock 200
  */
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
@@ -36,7 +35,15 @@ function parseKV(str) {
 
 function addToUpBlacklist(upId, upName, source) {
   const list = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY) || "[]");
-  if (list.some(u => String(u.up_id) === upId)) return;
+  // 已存在则更新名称（如果之前名称为空）
+  const existing = list.find(u => String(u.up_id) === upId);
+  if (existing) {
+    if (!existing.up_name && upName) {
+      existing.up_name = upName;
+      $persistentStore.write(JSON.stringify(list), UP_BLACKLIST_KEY);
+    }
+    return;
+  }
   list.push({ up_id: upId, up_name: upName, source, added_at: new Date().toISOString() });
   $persistentStore.write(JSON.stringify(list), UP_BLACKLIST_KEY);
   $notification.post("哔哩哔哩黑名单", "已将 UP 加入黑名单", upName || `UID: ${upId}`);
@@ -50,13 +57,24 @@ function addToPartBlacklist(tid, tname) {
   $notification.post("哔哩哔哩黑名单", "已将分区加入黑名单", tname || `TID: ${tid}`);
 }
 
-function mockSuccess() {
-  $done({
-    response: {
-      status:  200,
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ code: 0, message: "OK", ttl: 1 }),
-    },
+function findNameLocally(upId, meta, upNameMap, metaMap) {
+  return meta.up_name
+    || upNameMap[upId]
+    || (Object.values(metaMap).find(e => String(e.up_id) === upId && e.up_name) || {}).up_name
+    || "";
+}
+
+function fetchUpNameThenDone(upId, source, doneAction) {
+  $httpClient.get({
+    url: `https://api.bilibili.com/x/space/acc/info?mid=${upId}`,
+    timeout: 5000,
+  }, function(err, _resp, data) {
+    let name = "";
+    if (!err && data) {
+      try { name = (JSON.parse(data).data || {}).name || ""; } catch (_) {}
+    }
+    addToUpBlacklist(upId, name, source);
+    doneAction();
   });
 }
 
@@ -65,34 +83,32 @@ function mockSuccess() {
   const queryStr = url.includes("?") ? url.split("?")[1] : "";
   const params   = parseKV(queryStr);
 
-  // reason_ids 格式: "4#1"（URL 解码后），取 # 前的数字作为主 reason_id
   const reasonId = parseInt((params.reason_ids || "").split("#")[0], 10);
-
-  const avid  = params.id  || "";
-  const upMid = params.mid || "";
+  const avid     = params.id  || "";
+  const upMid    = params.mid || "";
 
   const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)    || "{}");
   const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
   const meta      = metaMap[String(avid)] || {};
 
-  // 调试
-  console.log(`[dislike] avid=${avid} upMid=${upMid} reasonId=${reasonId}`);
-  console.log(`[dislike] metaMapKeys=${Object.keys(metaMap).length} upNameMapKeys=${Object.keys(upNameMap).length}`);
-  console.log(`[dislike] meta=${JSON.stringify(meta)}`);
-  console.log(`[dislike] upNameMapHit=${upNameMap[upMid] || "(empty)"}`);
-  const scanHit = Object.values(metaMap).find(e => String(e.up_id) === upMid && e.up_name);
-  console.log(`[dislike] scanHit=${scanHit ? scanHit.up_name : "(not found)"}`);
-
   // ── UP 主黑名单 ────────────────────────────────────────────────
   if (reasonId === 4 || reasonId === 1001) {
-    const upId = upMid || String(meta.up_id || "");
-    // 三级查找：① avid 精确查 metaMap ② upNameMap（近10次刷新）③ 扫描整个 metaMap
-    const upName = meta.up_name
-      || upNameMap[upId]
-      || (Object.values(metaMap).find(e => String(e.up_id) === upId && e.up_name) || {}).up_name
-      || "";
-    if (upId) addToUpBlacklist(upId, upName, "dislike");
-    if (reasonId === 1001) return mockSuccess();
+    const upId   = upMid || String(meta.up_id || "");
+    if (!upId) return reasonId === 1001 ? mockSuccess() : $done({});
+
+    const upName = findNameLocally(upId, meta, upNameMap, metaMap);
+
+    if (upName) {
+      // 本地找到名称，同步处理
+      addToUpBlacklist(upId, upName, "dislike");
+      return reasonId === 1001 ? mockSuccess() : $done({});
+    }
+
+    // 本地没有名称，异步调 B站 API
+    const doneAction = reasonId === 1001
+      ? () => $done({ response: { status: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: 0, message: "OK", ttl: 1 }) } })
+      : () => $done({});
+    return fetchUpNameThenDone(upId, "dislike", doneAction);
   }
 
   // ── 分区黑名单 ─────────────────────────────────────────────────
@@ -100,8 +116,12 @@ function mockSuccess() {
     const tid   = String(meta.tid || "");
     const tname = meta.tname || "";
     if (tid) addToPartBlacklist(tid, tname);
-    if (reasonId === 1002) return mockSuccess();
+    return reasonId === 1002 ? mockSuccess() : $done({});
   }
 
-  $done({}); // 放行至 B站服务器
+  $done({});
+
+  function mockSuccess() {
+    $done({ response: { status: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: 0, message: "OK", ttl: 1 }) } });
+  }
 })();

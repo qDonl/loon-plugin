@@ -98,13 +98,6 @@ function injectBlacklistReasons(item) {
   const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
   const currentBatch = {};
 
-  // 调试：打印 args 字段内容
-  const firstWithArgs = items.find(i => i.args && i.args.up_id) || items[0] || {};
-  const dbgArgs = JSON.stringify(firstWithArgs.args || {});
-  $notification.post("bili [调试] filter args", `items=${items.length} goto=${firstWithArgs.goto}`, dbgArgs.slice(0, 150));
-  console.log(`[filter] items=${items.length}`);
-  console.log(`[filter] args=${dbgArgs}`);
-
   items.forEach(item => {
     const aid  = String(item.param || "");
     const args = item.args || {};

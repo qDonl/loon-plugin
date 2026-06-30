@@ -15,6 +15,7 @@
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
 const UP_NAME_MAP_KEY    = "bili_up_name_map";
+const META_MAP_KEY       = "bili_aid_meta_map";
 
 (function main() {
   const url      = $request.url || "";
@@ -27,16 +28,23 @@ const UP_NAME_MAP_KEY    = "bili_up_name_map";
     if (i > 0) params[decodeURIComponent(p.slice(0, i))] = decodeURIComponent(p.slice(i + 1));
   });
 
-  const upList   = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY)   || "[]");
-  const partList = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
-  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY)  || "{}");
+  const upList    = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY)   || "[]");
+  const partList  = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
+  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY)   || "{}");
+  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)      || "{}");
+  const metaValues = Object.values(metaMap);
 
-  // 补全 up_name 为空的条目（历史数据修复）
+  // 补全 up_name 为空的条目，三级查找，找到后持久化写回
+  let needsSave = false;
   upList.forEach(u => {
-    if (!u.up_name && upNameMap[String(u.up_id)]) {
-      u.up_name = upNameMap[String(u.up_id)];
-    }
+    if (u.up_name) return;
+    const id = String(u.up_id);
+    const found = upNameMap[id]
+      || (metaValues.find(e => String(e.up_id) === id && e.up_name) || {}).up_name
+      || "";
+    if (found) { u.up_name = found; needsSave = true; }
   });
+  if (needsSave) $persistentStore.write(JSON.stringify(upList), UP_BLACKLIST_KEY);
 
   if (pathFull.endsWith("/remove-up")) {
     const upId = params.up_id;

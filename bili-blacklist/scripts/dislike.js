@@ -71,16 +71,18 @@ function mockSuccess() {
   const avid  = params.id  || "";
   const upMid = params.mid || "";
 
-  // 从 filter.js 维护的两张表中查询 UP 名称和分区信息
-  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)   || "{}");
+  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)    || "{}");
   const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
   const meta      = metaMap[String(avid)] || {};
 
   // ── UP 主黑名单 ────────────────────────────────────────────────
   if (reasonId === 4 || reasonId === 1001) {
-    const upId   = upMid || String(meta.up_id || "");
-    // 优先用 avid 查详情，查不到再用 up_id 反查名称
-    const upName = meta.up_name || upNameMap[upId] || "";
+    const upId = upMid || String(meta.up_id || "");
+    // 三级查找：① avid 精确查 metaMap ② upNameMap（近10次刷新）③ 扫描整个 metaMap
+    const upName = meta.up_name
+      || upNameMap[upId]
+      || (Object.values(metaMap).find(e => String(e.up_id) === upId && e.up_name) || {}).up_name
+      || "";
     if (upId) addToUpBlacklist(upId, upName, "dislike");
     if (reasonId === 1001) return mockSuccess();
   }

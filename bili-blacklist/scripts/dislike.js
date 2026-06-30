@@ -2,31 +2,29 @@
  * B站「不感兴趣」拦截器
  * 拦截: https://app.bilibili.com/x/feed/dislike (http-request)
  *
- * 处理两类 reason_id：
+ * 处理两类入口触发的请求：
  *
- *  reason_id=1001  由 filter.js 注入的「🚫 屏蔽UP」菜单项触发
- *                  → 将该 UP 加入 bili_up_blacklist
- *                  → 返回 mock 200，请求不转发到 B站服务器
+ *  A. 原生菜单入口（兜底机制）
+ *     reason_id=4 → 「不感兴趣：UP」    → 写 UP 黑名单，放行至 B站服务器
+ *     reason_id=3 → 「不感兴趣：频道」  → 写分区黑名单，放行至 B站服务器
  *
- *  reason_id=1002  由 filter.js 注入的「🚫 屏蔽分区」菜单项触发
- *                  → 将该分区加入 bili_partition_blacklist
- *                  → 返回 mock 200，请求不转发到 B站服务器
+ *  B. 注入菜单入口（主动屏蔽）
+ *     reason_id=1001 → 「加入UP黑名单：xxx」   → 写 UP 黑名单，返回 mock 200
+ *     reason_id=1002 → 「加入分区黑名单：xxx」 → 写分区黑名单，返回 mock 200
+ *     （自定义 id 不转发 B站，避免服务端因未知 reason_id 报错）
  *
- *  其他 reason_id  B站原生「不感兴趣」（如推荐过、内容质量差等）
- *                  → 直接放行，正常上报给 B站服务器
+ *  C. 其他 reason_id → 直接放行，不做处理
  *
- * UP 名称 / 分区名称的查取顺序：
- *   1. 请求体中 reason 条目携带的 extend 字段（JSON）
- *   2. filter.js 维护的 bili_aid_meta_map（以内容 avid 为键）
- *   3. 以 ID 兜底存储（管理页仍可显示并移除）
+ * UP / 分区名称查取顺序：
+ *   1. reason.extend 字段（filter.js 注入，JSON 字符串）
+ *   2. bili_aid_meta_map（以内容 avid 为键）
+ *   3. 请求体中的 mid/up_id/tid 参数
+ *   4. 以 ID 兜底存储
  */
 
 const UP_BLACKLIST_KEY   = "bili_up_blacklist";
 const PART_BLACKLIST_KEY = "bili_partition_blacklist";
 const META_MAP_KEY       = "bili_aid_meta_map";
-
-const REASON_ID_UP   = "1001";
-const REASON_ID_PART = "1002";
 
 function parseKV(str) {
   const params = {};
@@ -41,11 +39,10 @@ function parseKV(str) {
   return params;
 }
 
-function tryParseJSON(str) {
+function tryJSON(str) {
   try { return JSON.parse(str || "{}"); } catch (_) { return {}; }
 }
 
-// 拦截自定义 reason 时返回 mock 成功，不转发给 B站服务器
 function mockSuccess() {
   return $done({
     response: {
@@ -56,61 +53,70 @@ function mockSuccess() {
   });
 }
 
+function addToUpBlacklist(upId, upName, source) {
+  const list = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY) || "[]");
+  if (list.some(u => String(u.up_id) === upId)) return;
+  list.push({ up_id: upId, up_name: upName, source, added_at: new Date().toISOString() });
+  $persistentStore.write(JSON.stringify(list), UP_BLACKLIST_KEY);
+  $notification.post("哔哩哔哩黑名单", "已将 UP 加入黑名单", upName || `UID: ${upId}`);
+}
+
+function addToPartBlacklist(tid, tname) {
+  const list = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
+  if (list.some(p => String(p.tid) === tid)) return;
+  list.push({ tid, tname, added_at: new Date().toISOString() });
+  $persistentStore.write(JSON.stringify(list), PART_BLACKLIST_KEY);
+  $notification.post("哔哩哔哩黑名单", "已将分区加入黑名单", tname || `TID: ${tid}`);
+}
+
 (function main() {
   const url      = $request.url || "";
   const queryStr = url.includes("?") ? url.split("?")[1] : "";
   const bodyStr  = $request.body || "";
 
-  // URL query 和 body 参数合并，body 优先
-  const params = Object.assign({}, parseKV(queryStr), parseKV(bodyStr));
-
+  const params    = Object.assign({}, parseKV(queryStr), parseKV(bodyStr));
   const reasonId  = String(params.reason_id || "");
   const contentId = String(params.id        || "");
 
-  // 非自定义 reason → 放行
-  if (reasonId !== REASON_ID_UP && reasonId !== REASON_ID_PART) {
+  // 非目标 reason → 放行
+  if (!["3", "4", "1001", "1002"].includes(reasonId)) {
     return $done({});
   }
 
-  // 查取 meta：优先 extend，其次 meta_map
-  const extendData = tryParseJSON(params.extend);
-  const metaMap    = tryParseJSON($persistentStore.read(META_MAP_KEY));
-  const meta       = metaMap[contentId] || {};
+  // 名称查取：extend > meta_map > 请求参数
+  const extend  = tryJSON(params.extend);
+  const metaMap = tryJSON($persistentStore.read(META_MAP_KEY));
+  const meta    = metaMap[contentId] || {};
 
-  if (reasonId === REASON_ID_UP) {
-    const upId   = String(extendData.up_id   || meta.up_id   || params.mid || params.up_id || "");
-    const upName =        extendData.up_name || meta.up_name || "";
-    if (!upId) return mockSuccess();
-
-    const list = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY) || "[]");
-    if (!list.some(u => String(u.up_id) === upId)) {
-      list.push({
-        up_id:    upId,
-        up_name:  upName,
-        source:   "three_point",
-        added_at: new Date().toISOString(),
-      });
-      $persistentStore.write(JSON.stringify(list), UP_BLACKLIST_KEY);
-    }
-    $notification.post("哔哩哔哩黑名单", "已将 UP 加入黑名单", upName || `UID: ${upId}`);
-    return mockSuccess();
+  // ── A. 原生 UP（reason_id=4）────────────────────────────────
+  if (reasonId === "4") {
+    const upId   = String(meta.up_id || params.mid || params.up_id || "");
+    const upName = meta.up_name || params.uname || "";
+    if (upId) addToUpBlacklist(upId, upName, "dislike");
+    return $done({});   // 放行至 B站服务器
   }
 
-  if (reasonId === REASON_ID_PART) {
-    const tid   = String(extendData.tid   || meta.tid   || params.tid || "");
-    const tname =        extendData.tname || meta.tname || params.tname || "";
-    if (!tid) return mockSuccess();
+  // ── A. 原生分区（reason_id=3）───────────────────────────────
+  if (reasonId === "3") {
+    const tid   = String(meta.tid || params.tid || "");
+    const tname = meta.tname || params.tname || "";
+    if (tid) addToPartBlacklist(tid, tname);
+    return $done({});   // 放行至 B站服务器
+  }
 
-    const list = JSON.parse($persistentStore.read(PART_BLACKLIST_KEY) || "[]");
-    if (!list.some(p => String(p.tid) === tid)) {
-      list.push({
-        tid:      tid,
-        tname:    tname,
-        added_at: new Date().toISOString(),
-      });
-      $persistentStore.write(JSON.stringify(list), PART_BLACKLIST_KEY);
-    }
-    $notification.post("哔哩哔哩黑名单", "已将分区加入黑名单", tname || `TID: ${tid}`);
+  // ── B. 注入 UP（reason_id=1001）────────────────────────────
+  if (reasonId === "1001") {
+    const upId   = String(extend.up_id   || meta.up_id   || params.mid || "");
+    const upName =        extend.up_name || meta.up_name || "";
+    if (upId) addToUpBlacklist(upId, upName, "three_point");
+    return mockSuccess();   // 不转发 B站，避免未知 reason_id 报错
+  }
+
+  // ── B. 注入分区（reason_id=1002）───────────────────────────
+  if (reasonId === "1002") {
+    const tid   = String(extend.tid   || meta.tid   || params.tid || "");
+    const tname =        extend.tname || meta.tname || "";
+    if (tid) addToPartBlacklist(tid, tname);
     return mockSuccess();
   }
 })();

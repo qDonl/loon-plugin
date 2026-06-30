@@ -23,11 +23,13 @@
  *  dislike.js 同时处理原生 id 和自定义 id，两条路都能写黑名单。
  */
 
-const UP_BLACKLIST_KEY   = "bili_up_blacklist";
-const PART_BLACKLIST_KEY = "bili_partition_blacklist";
-const META_MAP_KEY       = "bili_aid_meta_map";
-const UP_NAME_MAP_KEY    = "bili_up_name_map";   // up_id → up_name 反查表
-const META_MAP_MAX       = 300;
+const UP_BLACKLIST_KEY    = "bili_up_blacklist";
+const PART_BLACKLIST_KEY  = "bili_partition_blacklist";
+const META_MAP_KEY        = "bili_aid_meta_map";
+const UP_NAME_MAP_KEY     = "bili_up_name_map";     // 合并后的平铺反查表，供 dislike.js 读取
+const UP_NAME_BATCHES_KEY = "bili_up_name_batches"; // 最近 N 次刷新的批次数组
+const META_MAP_MAX        = 300;
+const NAME_BATCH_MAX      = 10;
 
 const REASON_ID_UP   = 1001;
 const REASON_ID_PART = 1002;
@@ -93,10 +95,10 @@ function injectBlacklistReasons(item) {
   const blockedUps   = new Set(upBlacklist.map(u => String(u.up_id)));
   const blockedParts = new Set(partBlacklist.map(p => String(p.tid)));
 
-  // 维护 aid -> meta 映射（累积，最多 300 条）
-  // up_id -> up_name 反查表（每次刷新重置，只保留本次数据）
-  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
-  const upNameMap = {};
+  // 维护 aid -> meta 映射（滚动累积，最多 300 条）
+  const metaMap = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
+  // 本次刷新产生的 up_id → up_name 批次
+  const currentBatch = {};
 
   items.forEach(item => {
     const aid  = String(item.param || "");
@@ -108,7 +110,7 @@ function injectBlacklistReasons(item) {
         tid:     String(args.tid   || ""),
         tname:   args.tname  || "",
       };
-      if (args.up_name) upNameMap[String(args.up_id)] = args.up_name;
+      if (args.up_name) currentBatch[String(args.up_id)] = args.up_name;
     }
   });
 
@@ -116,7 +118,15 @@ function injectBlacklistReasons(item) {
   if (mapKeys.length > META_MAP_MAX) {
     mapKeys.slice(0, mapKeys.length - META_MAP_MAX).forEach(k => delete metaMap[k]);
   }
-  $persistentStore.write(JSON.stringify(metaMap),   META_MAP_KEY);
+  $persistentStore.write(JSON.stringify(metaMap), META_MAP_KEY);
+
+  // 滚动批次：保留最近 NAME_BATCH_MAX 次刷新的数据
+  const batches = JSON.parse($persistentStore.read(UP_NAME_BATCHES_KEY) || "[]");
+  batches.unshift(currentBatch);
+  if (batches.length > NAME_BATCH_MAX) batches.length = NAME_BATCH_MAX;
+  // 将所有批次合并为平铺表（新批次覆盖旧批次的同名条目）
+  const upNameMap = Object.assign({}, ...batches.slice().reverse());
+  $persistentStore.write(JSON.stringify(batches),   UP_NAME_BATCHES_KEY);
   $persistentStore.write(JSON.stringify(upNameMap), UP_NAME_MAP_KEY);
 
   // 过滤 + 注入

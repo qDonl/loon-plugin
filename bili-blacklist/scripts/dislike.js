@@ -75,12 +75,13 @@ function mockSuccess() {
   const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
   const meta      = metaMap[String(avid)] || {};
 
-  // 调试：确认参数和名称查找结果
-  $notification.post(
-    "bili [调试] dislike 参数",
-    `avid=${avid} mid=${upMid} reasonId=${reasonId}`,
-    `metaHit=${!!meta.up_name} nameMapHit=${!!upNameMap[upMid]} metaScanKeys=${Object.keys(metaMap).length}`
-  );
+  // 调试
+  console.log(`[dislike] avid=${avid} upMid=${upMid} reasonId=${reasonId}`);
+  console.log(`[dislike] metaMapKeys=${Object.keys(metaMap).length} upNameMapKeys=${Object.keys(upNameMap).length}`);
+  console.log(`[dislike] meta=${JSON.stringify(meta)}`);
+  console.log(`[dislike] upNameMapHit=${upNameMap[upMid] || "(empty)"}`);
+  const scanHit = Object.values(metaMap).find(e => String(e.up_id) === upMid && e.up_name);
+  console.log(`[dislike] scanHit=${scanHit ? scanHit.up_name : "(not found)"}`);
 
   // ── UP 主黑名单 ────────────────────────────────────────────────
   if (reasonId === 4 || reasonId === 1001) {

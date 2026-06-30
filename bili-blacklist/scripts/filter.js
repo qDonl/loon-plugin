@@ -93,9 +93,10 @@ function injectBlacklistReasons(item) {
   const blockedUps   = new Set(upBlacklist.map(u => String(u.up_id)));
   const blockedParts = new Set(partBlacklist.map(p => String(p.tid)));
 
-  // 维护 aid -> meta 映射 + up_id -> up_name 反查表
-  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY)   || "{}");
-  const upNameMap = JSON.parse($persistentStore.read(UP_NAME_MAP_KEY) || "{}");
+  // 维护 aid -> meta 映射（累积，最多 300 条）
+  // up_id -> up_name 反查表（每次刷新重置，只保留本次数据）
+  const metaMap   = JSON.parse($persistentStore.read(META_MAP_KEY) || "{}");
+  const upNameMap = {};
 
   items.forEach(item => {
     const aid  = String(item.param || "");
@@ -107,7 +108,6 @@ function injectBlacklistReasons(item) {
         tid:     String(args.tid   || ""),
         tname:   args.tname  || "",
       };
-      // 反查表：只要见过这个 UP 就记下名称，供 dislike.js 兜底使用
       if (args.up_name) upNameMap[String(args.up_id)] = args.up_name;
     }
   });

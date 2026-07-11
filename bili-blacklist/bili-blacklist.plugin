@@ -1,5 +1,5 @@
 #!name = bili-blacklist
-#!desc = B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单 ④空降助手：查询社区数据库，命中广告/回顾等可跳过片段时推送通知（可开关）。黑名单持久化存储。
+#!desc = B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单。黑名单持久化存储。
 #!author = qDonl
 #!homepage = http://bili.blacklist
 
@@ -29,23 +29,16 @@
 #        插件自动将该分区的 TID 和名称写入持久化黑名单。
 #      · 下次刷新首页时，该分区下的所有视频将被过滤。
 #
-#  功能 4：空降助手（可开关，默认开启）
-#    现版本 B 站 App 视频详情走 gRPC + Protobuf（grpc.biliapi.net），
-#    不是旧版 JSON 接口。拦截该接口响应后：
-#      · 用 Loon 原生 $utils.ungzip 解压 gRPC 消息体，
-#        正则扫描出 bvid（+ 可选 cid），不做完整 protobuf 解码。
-#      · 用 bvid/cid 向社区数据库 BSBSB（https://bsbsb.top，与浏览器插件
-#        「小电视空降助手」同源数据）查询该视频的广告 / 推广 / 互动提醒 /
-#        片头 / 片尾 / 回顾 等可跳过片段。
-#      · 命中片段时推送 Loon 通知，列出各片段时间范围，用户照通知
-#        手动拖动进度条跳过。
-#      · 查询结果按视频缓存 12 小时，避免重复请求社区数据库。
-#    限制：本功能只读嗅探响应、不修改任何数据，因此不会影响播放，
-#    但也无法像网页版空降助手那样自动跳转播放进度，或在进度条上
-#    显示可点击标记——gRPC 新接口没有已知可写的等效字段，
-#    强行改二进制响应风险太高，故只做通知提醒这一种（可靠）方式。
-#    开关：Loon → 插件 → bili-blacklist → 参数 →「开启空降助手」。
-#    关闭后 Loon 直接跳过该脚本，不产生任何网络请求。
+#  关于「空降助手」：
+#    本插件不内置空降助手功能。B 站现版本 App 视频详情走 gRPC + Protobuf
+#    （grpc.biliapi.net），真正做到「自动跳过 / 播放画面内弹幕预警」需要
+#    完整的 protobuf 编解码能力（把合成的警告弹幕重新编码写回弹幕接口），
+#    这块已有成熟且持续维护的开源实现，直接用现成的即可，无需在本插件
+#    里重复造轮子：
+#      · kokoryh/Sparkle「哔哩哔哩增强」插件（内置「空降助手」开关）
+#        https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/release/loon/plugin/bilibili.lpx
+#    与 bili-blacklist 并存不冲突（拦截的接口不同：它管弹幕/评论/详情，
+#    本插件管首页推荐流 + 不感兴趣黑名单）。
 #
 # ── 使用方法 ────────────────────────────────────────────────────
 #
@@ -141,32 +134,6 @@
 #  说明: 最多保留最近 300 条记录（LRU 淘汰旧条目），
 #       此键无需手动管理，仅供脚本内部读取。
 #
-#  Key: bili_skip_cache
-#  类型: JSON Object
-#  说明: 空降助手片段查询结果缓存（内部使用，由 skip.js 维护）
-#       键为 "<bvid>_<cid>"（正则未扫描到 cid 时退化为 "<bvid>"），
-#       值含查询时间戳，12 小时后过期重新查询。
-#       最多保留 200 条（LRU 淘汰），无需手动管理。
-#  结构:
-#    {
-#      "<bvid>_<cid>": {
-#        "ts": 1751328000000,
-#        "segments": [
-#          { "start": 30.5, "end": 90.2, "category": "sponsor" },
-#          ...
-#        ]
-#      },
-#      ...
-#    }
-#
-#  Key: bili_skip_last
-#  类型: JSON Object
-#  说明: 最近一次命中片段的视频信息（内部使用，由 skip.js 维护），
-#       供 Panel 展示读取，无需手动管理。视频标题未做解析（避免误抓取
-#       无关字符串），只记录 bvid。
-#  结构:
-#    { "bvid": "BV1xxxxxxxx", "segments": [...], "ts": 1751328000000 }
-#
 # ── 脚本文件说明 ──────────────────────────────────────────────────
 #
 #  filter.js   拦截首页推荐流响应
@@ -203,22 +170,6 @@
 #              · 展示 UP 黑名单人数 / 分区黑名单数量
 #              · 列出最近添加的 5 条记录
 #              · 附管理页入口地址
-#              · 若空降助手最近命中过片段，附带展示最近一次结果
-#
-#  skip.js     空降助手，拦截视频详情 gRPC 响应
-#              （grpc.biliapi.net/bilibili.app.viewunite.v1.View/View）
-#              · $utils.ungzip 解压 gRPC 消息体，正则扫描 bvid + cid
-#              · 用 bvid/cid 查询 BSBSB 社区数据库，命中片段推送 Loon 通知
-#              · 只读嗅探，从不修改响应内容，$done({}) 原样放行
-#              · 结果按视频缓存 12 小时（bili_skip_cache）
-#              · 由 Loon 插件参数 skip_enabled 控制是否执行
-
-# ============================================================
-# Argument
-# Loon → 插件 → bili-blacklist → 参数，可视化开关。
-# ============================================================
-[Argument]
-skip_enabled = switch,true,tag=开启空降助手,desc=开启后自动查询社区数据库(bsbsb.top)，视频中含广告/推广/互动提醒/片头片尾/回顾等可跳过片段时推送通知（仅通知，不改变播放内容）。关闭后不执行该脚本、不产生网络请求。
 
 # ============================================================
 # Host
@@ -235,7 +186,7 @@ bili.blacklist = 127.0.0.1
 # 首次使用请确保 Loon 已安装并信任 CA 证书。
 # ============================================================
 [MITM]
-hostname = app.bilibili.com, grpc.biliapi.net
+hostname = app.bilibili.com
 
 # ============================================================
 # Script
@@ -256,16 +207,8 @@ http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.g
 # 注意：须确保此插件在「哔哩哔哩去广告」等同域名插件前执行（Loon 插件列表靠上）
 http-response https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/filter.js?v=3, requires-body=true, timeout=10, tag=bili_blacklist_filter
 
-# ── 空降助手：视频详情 gRPC 响应，命中可跳过片段时推送通知 ───────────
-# 真实接口: POST https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/View
-# （现版本 App 视频详情走 gRPC + Protobuf，非旧版 JSON 接口）
-# binary-body-mode 取原始字节，脚本自行 ungzip + 正则扫描 bvid/cid，
-# 查社区数据库 BSBSB，只读嗅探不改响应，命中片段推送通知
-# 开关: [Argument] skip_enabled（Loon 插件参数页可视化切换）
-http-response ^https://grpc\.biliapi\.net/bilibili\.app\.viewunite\.v1\.View/View$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/skip.js?v=2, requires-body=true, binary-body-mode=true, timeout=8, tag=bili_blacklist_skip, enable={skip_enabled}
-
 # ============================================================
 # Panel
 # ============================================================
 [Panel]
-bili_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/panel.js?v=3, title=B站黑名单, interval=3600
+bili_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/panel.js?v=4, title=B站黑名单, interval=3600

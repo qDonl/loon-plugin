@@ -46,6 +46,14 @@
 #    1. 点击「···」→「不感兴趣：UP」
 #    2. 插件拦截 reason_id=4，写入本地黑名单，同时放行至 B 站服务器
 #
+#  添加 UP 主黑名单（从 UP 主页方式，无需等 TA 出现在首页/热门）：
+#    1. 进入该 UP 的个人空间主页 → 点开TA任意一个视频 → 点右上角「···」
+#       → 「我不想看」→ 选「UP主：xxx」
+#    2. 触发的还是同一个 x/feed/dislike 接口（reason_id=4，mid 直接就是
+#       目标 UP 的 mid），插件同样拦截写入本地黑名单、放行至 B 站服务器
+#    这条路径本质和「不感兴趣：UP」兜底方式是同一套机制，只是入口换成了
+#    UP 主页 + 视频详情页，不需要这个 UP 先出现在首页推荐流里
+#
 #  添加分区黑名单（推荐方式）：点击「···」→「加入分区黑名单：xxx」
 #  添加分区黑名单（兜底方式）：点击「···」→「不感兴趣：频道」
 #
@@ -144,7 +152,7 @@ http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.
 # 真实接口: GET https://app.bilibili.com/x/feed/dislike
 # 关键参数: reason_ids=4#1(UP) / 3#1(分区)，mid=UP_UID，id=avid
 # reason_id 4/1001 → UP 黑名单；reason_id 3/1002 → 分区黑名单
-http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/dislike.js?v=3, requires-body=false, timeout=10, tag=bili_blacklist_dislike
+http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/dislike.js?v=4, requires-body=false, timeout=10, tag=bili_blacklist_dislike
 
 # ── 首页推荐流：响应过滤 ─────────────────────────────────────────
 # 过滤非普通视频（广告/直播）+ 黑名单 UP + 黑名单分区

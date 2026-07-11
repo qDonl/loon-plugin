@@ -2,7 +2,14 @@
  * B站「不感兴趣」拦截
  * 拦截: https://app.bilibili.com/x/feed/dislike (http-request, GET)
  *
- * UP 名称查找顺序：
+ * 两种真实抓包确认过的参数形态（同一个接口，不同入口传参格式不一样）：
+ *   · 首页三点菜单：reason_ids=4#1，mid 可能为空，靠 avid 反查
+ *   · 视频详情页「···」→我不想看→UP主（从 UP 主页点开TA任意一个视频进入）：
+ *     reason_id=4（单数，无 # 后缀），mid 直接就是目标 UP 的 mid，不需要
+ *     反查——这条路径比首页那条更直接，不依赖 metaMap 缓存是否命中。
+ *   两种参数名都要兼容，否则视频详情页这条路径会被漏判。
+ *
+ * UP 名称查找顺序（mid 直接给了的情况下，这一步只是为了填 up_name 而已）：
  *   1. metaMap[avid].up_name      — 精确命中当前视频（avid 由 dislike URL 的 id 参数提供）
  *   2. nameCache[up_id]           — filter.js 持久化的 UP 名称缓存（最多 50 条）
  *   3. 扫描 metaMap               — 近 300 条视频里同 UP 的任意一条
@@ -70,7 +77,8 @@ function mockSuccess() {
   const queryStr = url.includes("?") ? url.split("?")[1] : "";
   const params   = parseKV(queryStr);
 
-  const reasonId = parseInt((params.reason_ids || "").split("#")[0], 10);
+  const reasonIdRaw = params.reason_ids || params.reason_id || "";
+  const reasonId = parseInt(reasonIdRaw.split("#")[0], 10);
   const avid     = params.id  || "";
   const upMid    = params.mid || "";
 

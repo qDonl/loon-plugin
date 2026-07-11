@@ -1,5 +1,5 @@
 #!name = bili-blacklist
-#!desc = B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单。黑名单持久化存储。
+#!desc = B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单 ④空降助手：查询社区数据库标记广告/回顾等可跳过片段（可开关）。黑名单持久化存储。
 #!author = qDonl
 #!homepage = http://bili.blacklist
 
@@ -28,6 +28,20 @@
 #      · 当用户选择「不感兴趣 → 频道：xxx」时（reason_id = 3），
 #        插件自动将该分区的 TID 和名称写入持久化黑名单。
 #      · 下次刷新首页时，该分区下的所有视频将被过滤。
+#
+#  功能 4：空降助手（可开关，默认开启）
+#    拦截视频详情接口（/x/v2/view），用 bvid+cid 向社区数据库 BSBSB
+#    （https://bsbsb.top，与浏览器插件「小电视空降助手」同源数据）查询
+#    该视频的广告 / 推广 / 互动提醒 / 片头 / 片尾 / 回顾 等可跳过片段。
+#      · 尝试将片段写入 view_points（章节点）字段，若 App 版本支持渲染，
+#        进度条上会出现可点击跳转的分段标记（是否生效因 App 版本而异）。
+#      · 命中片段时始终推送 Loon 通知，列出各片段时间范围，
+#        保证用户至少能照通知手动跳过，不依赖 App 是否渲染章节点。
+#      · 查询结果按视频缓存 12 小时，避免重复请求社区数据库。
+#      · 受限于 App 原生播放器无法像网页版一样被 JS 接管进度，
+#        本功能不做「全自动跳转播放进度」，仅做标记 + 通知提醒。
+#    开关：Loon → 插件 → bili-blacklist → 参数 →「开启空降助手」。
+#    关闭后 Loon 直接跳过该脚本，不产生任何网络请求。
 #
 # ── 使用方法 ────────────────────────────────────────────────────
 #
@@ -123,6 +137,30 @@
 #  说明: 最多保留最近 300 条记录（LRU 淘汰旧条目），
 #       此键无需手动管理，仅供脚本内部读取。
 #
+#  Key: bili_skip_cache
+#  类型: JSON Object
+#  说明: 空降助手片段查询结果缓存（内部使用，由 skip.js 维护）
+#       键为 "<bvid>_<cid>"，值含查询时间戳，12 小时后过期重新查询。
+#       最多保留 200 条（LRU 淘汰），无需手动管理。
+#  结构:
+#    {
+#      "<bvid>_<cid>": {
+#        "ts": 1751328000000,
+#        "segments": [
+#          { "start": 30.5, "end": 90.2, "category": "sponsor" },
+#          ...
+#        ]
+#      },
+#      ...
+#    }
+#
+#  Key: bili_skip_last
+#  类型: JSON Object
+#  说明: 最近一次命中片段的视频信息（内部使用，由 skip.js 维护），
+#       供后续扩展（如管理页 / Panel 展示）读取，无需手动管理。
+#  结构:
+#    { "title": "视频标题", "segments": [...], "ts": 1751328000000 }
+#
 # ── 脚本文件说明 ──────────────────────────────────────────────────
 #
 #  filter.js   拦截首页推荐流响应
@@ -159,6 +197,20 @@
 #              · 展示 UP 黑名单人数 / 分区黑名单数量
 #              · 列出最近添加的 5 条记录
 #              · 附管理页入口地址
+#              · 若空降助手最近命中过片段，附带展示最近一次结果
+#
+#  skip.js     空降助手，拦截视频详情响应（/x/v2/view）
+#              · 用响应中的 bvid + cid 查询 BSBSB 社区数据库
+#              · 命中片段写入 view_points 字段 + 推送 Loon 通知
+#              · 结果按视频缓存 12 小时（bili_skip_cache）
+#              · 由 Loon 插件参数 skip_enabled 控制是否执行
+
+# ============================================================
+# Argument
+# Loon → 插件 → bili-blacklist → 参数，可视化开关。
+# ============================================================
+[Argument]
+skip_enabled = switch,true,tag=开启空降助手,desc=开启后自动查询社区数据库(bsbsb.top)标记视频中广告/推广/互动提醒/片头片尾/回顾等可跳过片段，并推送通知。关闭后不执行该脚本、不产生网络请求。
 
 # ============================================================
 # Host
@@ -196,8 +248,14 @@ http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.g
 # 注意：须确保此插件在「哔哩哔哩去广告」等同域名插件前执行（Loon 插件列表靠上）
 http-response https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/filter.js?v=3, requires-body=true, timeout=10, tag=bili_blacklist_filter
 
+# ── 空降助手：视频详情响应，标记可跳过片段 ─────────────────────────
+# 真实接口: GET https://app.bilibili.com/x/v2/view
+# 查社区数据库 BSBSB，命中片段写入 view_points + 推送通知
+# 开关: [Argument] skip_enabled（Loon 插件参数页可视化切换）
+http-response ^https://app\.bilibili\.com/x/v2/view(\?.*)?$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/skip.js?v=1, requires-body=true, timeout=8, tag=bili_blacklist_skip, enable={skip_enabled}
+
 # ============================================================
 # Panel
 # ============================================================
 [Panel]
-bili_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/panel.js, title=B站黑名单, interval=3600
+bili_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bili-blacklist/scripts/panel.js?v=2, title=B站黑名单, interval=3600

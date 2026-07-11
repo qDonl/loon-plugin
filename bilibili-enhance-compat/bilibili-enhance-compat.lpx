@@ -1,7 +1,7 @@
-#!name=哔哩哔哩增强（兼容 bili-blacklist 补丁版）
-#!desc=拜托，没有广告的哔哩哔哩真的超酷的（本版本移除了会与 bili-blacklist 冲突的一条规则，其余功能不变，含空降助手）
+#!name=哔哩哔哩增强＋黑名单
+#!desc=合并版：kokoryh/Sparkle 哔哩哔哩增强（空降助手/评论区净化/开屏广告拦截等）＋ bili-blacklist（首页黑名单过滤：屏蔽广告直播卡片、UP主黑名单、分区黑名单）。单插件运行，不冲突。
 #!openUrl=https://apps.apple.com/app/id736536022
-#!homepage=https://github.com/kokoryh/Sparkle/blob/master/src/script/bilibili/README.md
+#!homepage=http://bili.blacklist
 #!tag=Enhancement
 #!system=iOS,iPadOS
 #!system_version=15
@@ -10,32 +10,29 @@
 #!date=2026-07-11
 
 # ============================================================
-# 本文件基于 kokoryh/Sparkle「哔哩哔哩增强」插件修改，仅改动一处：
-# 原文件地址:
-#   https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/release/loon/plugin/bilibili.lpx
+# 本插件 = kokoryh/Sparkle「哔哩哔哩增强」+ 自研 bili-blacklist 合并而成。
+# 合并原因：
+#   两者原本是独立插件，都会拦截 app.bilibili.com/x/v2/feed/index。
+#   Loon 引擎行为：[Rewrite] 一旦命中并修改响应体，会在该连接上禁用
+#   其余会改 body 的 [Script]（与插件先后顺序无关，是引擎级别的互斥，
+#   实测日志证据："Match modify response body rewrite. Disable
+#   scripts which modify request body in this conn."）。
+#   kokoryh 原版对 feed/index 有一条 response-body-json-jq 规则，
+#   会导致 bili-blacklist 的 filter.js 完全无法执行，UP 名称缓存
+#   永远为空。两边其实做的是同一件事（过滤首页广告/直播卡片），
+#   干脆合并成一个插件、只保留 bili-blacklist 的 filter.js 处理
+#   feed/index（功能更全，同时维护黑名单和名称缓存），删掉 kokoryh
+#   原版里那条冲突的 [Rewrite] 规则。
 #
-# 修改原因:
-#   原版 [Rewrite] 里有一条对 app.bilibili.com/x/v2/feed/index 的
-#   response-body-json-jq 规则，用于过滤首页推荐流广告。
-#   Loon 的机制是：一旦某条 [Rewrite] 规则命中并修改了响应体，
-#   会在该连接上禁用其余会修改 body 的 [Script]（与插件排序无关，
-#   是引擎级别的互斥，实测确认：日志出现
-#   "Match modify response body rewrite. Disable scripts which
-#    modify request body in this conn."）。
-#   这导致同样拦截 x/v2/feed/index 的 bili-blacklist 插件（filter.js，
-#   用于维护 UP 主黑名单/分区黑名单需要的名称缓存）完全无法执行，
-#   UP 名称缓存永远为空，加黑名单时只能拿到 UID 拿不到昵称。
+# 上游来源（分别对应本文件的两部分，各自独立维护）：
+#   · kokoryh/Sparkle：
+#     https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/release/loon/plugin/bilibili.lpx
+#   · bili-blacklist（本仓库同目录下 ../bili-blacklist/bili-blacklist.plugin，
+#     字段/存储结构说明见该文件，此处不重复）
 #
-#   两边其实做的是同一件事（过滤首页广告/直播卡片），bili-blacklist
-#   的 filter.js 本身就会做等效过滤，所以直接删掉本插件里这一条
-#   [Rewrite] 规则即可，不影响实际去广告效果，也不影响本插件其余
-#   功能（评论区净化、动态列表显示方式、空降助手等，这些都拦截的是
-#   grpc.biliapi.net 上的其他接口，跟 feed/index 无关）。
-#
-# 维护说明:
-#   这是手工同步的快照，上游更新后不会自动跟着变。如果 kokoryh/Sparkle
-#   有重大更新，需要重新对比合并（主要就是留意 [Rewrite] 里是否又新增
-#   了针对 x/v2/feed/index 的 response-body-json-jq 规则，删掉即可）。
+# 维护说明：这是手工合并的快照，上游任一方更新后不会自动同步，
+# 需要人工比对合并（重点关注 kokoryh 那边是否又新增了碰
+# feed/index 的 [Rewrite] 规则）。
 # ============================================================
 
 [Argument]
@@ -78,6 +75,14 @@ AND,((DOMAIN-SUFFIX,chat.bilibili.com), (OR,((DOMAIN-KEYWORD,stun), (DOMAIN-KEYW
 ^https:\/\/app\.bilibili\.com\/x\/v2\/account\/mine(\/ipad)?\? response-body-json-jq jq-path="https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/jq/bilibili.mine.jq"
 ^https:\/\/app\.bilibili\.com\/x\/v2\/account\/myinfo\? response-body-json-jq '.data.vip |= if . != null and .status == 0 then . + { status: 1, type: 2, due_date: 9005270400000, role: 15 } else . end'
 
+# ============================================================
+# Host
+# bili.blacklist 为黑名单管理页入口域名，让 Safari DNS 不报错。
+# Loon 在建连前拦截请求，直接返回管理页 HTML，不会真正连接 127.0.0.1。
+# ============================================================
+[Host]
+bili.blacklist = 127.0.0.1
+
 [Script]
 http-request ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile$ script-path=https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/dist/bilibili.protobuf.request.js, argument=[{logLevel}], requires-body=true, binary-body-mode=true, timeout=10, enable={sponsorBlock}, tag=bilibili.airborne
 http-request ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.(app\.viewunite\.v1\.View\/View|main\.community\.reply\.v1\.Reply\/MainList)$ script-path=https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/dist/bilibili.protobuf.request.js, argument=[{purifyComment}, {logLevel}], requires-body=true, binary-body-mode=true, timeout=10, enable={optimizeRequest}, tag=bilibili.request
@@ -85,5 +90,24 @@ http-response ^https:\/\/api\.live\.bilibili\.com\/xlive\/(app-interface\/v2\/in
 http-response ^https:\/\/www\.bilibili\.com\/blackboard\/era\/.+\.html\? script-path=https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/dist/webpage.bilibili.js, requires-body=true, tag=bilibili.webpage
 http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.(app\.(show\.v1\.Popular\/Index|dynamic\.v2\.Dynamic\/DynAll|view(unite)?\.v1\.View\/(View|ViewProgress|RelatesFeed)|playurl\.v1\.PlayURL\/PlayView|playerunite\.v1\.Player\/PlayViewUnite)|polymer\.app\.search\.v1\.Search\/SearchAll|community\.service\.dm\.v1\.DM\/DmView|main\.community\.reply\.v1\.Reply\/MainList|pgc\.gateway\.player\.v2\.PlayURL\/PlayView)$ script-path=https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/dist/bilibili.protobuf.response.js, argument=[{displayUpList}, {purifyComment}, {sponsorBlock}, {logLevel}], requires-body=true, binary-body-mode=true, tag=bilibili.protobuf
 
+# ── 管理页：http://bili.blacklist ────────────────────────────
+http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=3, requires-body=false, timeout=10, tag=bili_blacklist_manage
+
+# ── 「不感兴趣」拦截 ──────────────────────────────────────────────
+# 真实接口: GET https://app.bilibili.com/x/feed/dislike
+# 关键参数: reason_ids=4#1(UP) / 3#1(分区)，mid=UP_UID，id=avid
+# reason_id 4/1001 → UP 黑名单；reason_id 3/1002 → 分区黑名单
+http-request https://app\.bilibili\.com/x/feed/dislike script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/dislike.js?v=3, requires-body=false, timeout=10, tag=bili_blacklist_dislike
+
+# ── 首页推荐流：响应过滤 ─────────────────────────────────────────
+# 过滤非普通视频（广告/直播）+ 黑名单 UP + 黑名单分区
+http-response https://app\.bilibili\.com/x/v2/feed/index script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/filter.js?v=3, requires-body=true, timeout=10, tag=bili_blacklist_filter
+
 [MitM]
 hostname = grpc.biliapi.net, app.bilibili.com, api.bilibili.com, api.live.bilibili.com, www.bilibili.com, line3-h5-mobile-api.biligame.com
+
+# ============================================================
+# Panel
+# ============================================================
+[Panel]
+bili_blacklist_panel = script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/panel.js?v=4, title=B站黑名单, interval=3600

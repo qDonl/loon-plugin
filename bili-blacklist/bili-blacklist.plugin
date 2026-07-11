@@ -1,7 +1,16 @@
 #!name = bili-blacklist
-#!desc = B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单。黑名单持久化存储。
+#!desc = 【已合并，见下方说明】B站首页黑名单过滤：①屏蔽广告和直播卡片 ②长按不感兴趣→UP主，自动加入黑名单 ③长按不感兴趣→频道，自动加入分区黑名单。黑名单持久化存储。
 #!author = qDonl
 #!homepage = http://bili.blacklist
+
+# ============================================================
+# 提示：本插件功能已合并进 bilibili-enhance-compat（同仓库 ../bilibili-enhance-compat），
+# 那边是 kokoryh/Sparkle「哔哩哔哩增强」+ 本插件的合并版，一个插件搞定
+# 空降助手/评论区净化/开屏广告拦截 + 黑名单过滤，无需同时装两个插件。
+# 地址：
+#   https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/bilibili-enhance-compat.lpx
+# 若只想要黑名单功能、不需要 kokoryh 那部分增强，本插件可以继续单独使用。
+# ============================================================
 
 # ╔══════════════════════════════════════════════════════════════╗
 # ║                      bili-blacklist                          ║

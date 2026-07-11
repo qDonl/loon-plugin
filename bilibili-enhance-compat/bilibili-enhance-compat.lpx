@@ -24,15 +24,49 @@
 #   feed/index（功能更全，同时维护黑名单和名称缓存），删掉 kokoryh
 #   原版里那条冲突的 [Rewrite] 规则。
 #
-# 上游来源（分别对应本文件的两部分，各自独立维护）：
-#   · kokoryh/Sparkle：
-#     https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/release/loon/plugin/bilibili.lpx
-#   · bili-blacklist（本仓库同目录下 ../bili-blacklist/bili-blacklist.plugin，
-#     字段/存储结构说明见该文件，此处不重复）
+# 上游来源：
+#   kokoryh/Sparkle：
+#   https://raw.githubusercontent.com/kokoryh/Sparkle/refs/heads/master/release/loon/plugin/bilibili.lpx
+#   （黑名单部分为本仓库自研，无外部上游）
 #
-# 维护说明：这是手工合并的快照，上游任一方更新后不会自动同步，
-# 需要人工比对合并（重点关注 kokoryh 那边是否又新增了碰
-# feed/index 的 [Rewrite] 规则）。
+# 维护说明：这是手工合并的快照，上游更新后不会自动同步，需要人工
+# 比对合并（重点关注 kokoryh 那边是否又新增了碰 feed/index 的
+# [Rewrite] 规则）。
+#
+# ── 黑名单功能使用方法 ──────────────────────────────────────────
+#
+#  添加 UP 主黑名单（推荐方式）：
+#    1. 打开 B 站 App 首页，点击视频卡片右下角「···」三点按钮
+#    2. 在弹出菜单中找到「加入UP黑名单：xxx」并点击
+#       （由插件注入，位于菜单列表靠前位置）
+#    3. 插件拦截请求、写入本地黑名单，Loon 推送通知确认
+#    4. 下次下拉刷新首页即生效
+#
+#  添加 UP 主黑名单（兜底方式）：
+#    1. 点击「···」→「不感兴趣：UP」
+#    2. 插件拦截 reason_id=4，写入本地黑名单，同时放行至 B 站服务器
+#
+#  添加分区黑名单（推荐方式）：点击「···」→「加入分区黑名单：xxx」
+#  添加分区黑名单（兜底方式）：点击「···」→「不感兴趣：频道」
+#
+#  注意：「加入UP/分区黑名单」选项由插件在每次刷新响应时注入到三点
+#  菜单，首次使用前须下拉刷新一次首页让注入生效。若 B 站 App 版本
+#  不渲染未知菜单项，则自动回退到兜底方式。
+#
+#  管理黑名单：Loon 运行时在 Safari 访问 http://bili.blacklist，
+#  或 Loon → 插件 → 本插件 → 点击「主页」。管理页提供 UP主/分区
+#  两个 Tab，支持单条移除和一键清空。
+#
+# ── 黑名单持久化存储（$persistentStore）──────────────────────────
+#
+#  Key: bili_up_blacklist       JSON Array  UP 主黑名单
+#    [{ "up_id", "up_name", "source", "added_at" }, ...]
+#  Key: bili_partition_blacklist JSON Array  分区黑名单
+#    [{ "tid", "tname", "added_at" }, ...]
+#  Key: bili_up_name_map        JSON Object  UID→昵称 反查表（内部用）
+#  Key: bili_aid_meta_map       JSON Object  avid→{up_id,up_name,tid,tname}
+#    映射（内部用，供 dislike 拦截时查名称，最多保留 300 条 LRU）
+#  以上均由 filter.js/dislike.js 自动维护，无需手动管理。
 # ============================================================
 
 [Argument]

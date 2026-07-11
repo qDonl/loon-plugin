@@ -1,16 +1,22 @@
 /**
- * B站空降助手（社区跳过片段标记）
- * 拦截: https://app.bilibili.com/x/v2/view (http-response)
+ * B站空降助手（社区跳过片段通知）
+ * 拦截: https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/View (http-response)
  *
- * 数据来源：BSBSB 社区数据库 https://bsbsb.top/api/skipSegments
- * （与浏览器插件「小电视空降助手 / BilibiliSponsorBlock」同源，众包标注）
+ * 现版本 B 站 App（9.x）视频详情走 gRPC + Protobuf（grpc.biliapi.net），
+ * 不再是旧版 JSON 接口。响应体结构：
+ *   [1 字节压缩标志][4 字节大端长度][protobuf 消息，标志=1 时为 gzip 压缩]
+ * 用 Loon 原生 $utils.ungzip 解压后，不做完整 protobuf 解码（字段号未知、
+ * 且逆向成本高），而是直接对解压后的原始字节做正则扫描：
+ *   · bvid 固定格式 "BV1" + 9 位字母数字，作为字符串字面量出现在消息里
+ *   · cid 作为播放地址预加载链接里的 query 参数 "cid=xxxxx" 一并出现
+ * 用扫描到的 bvid（+ 可选 cid）向社区数据库 BSBSB（https://bsbsb.top，
+ * 与浏览器插件「小电视空降助手」同源数据）查询该视频的广告 / 推广 /
+ * 互动提醒 / 片头 / 片尾 / 回顾 等可跳过片段。
  *
- * 原生播放器无法像网页版一样被 JS 直接控制跳转进度，因此本插件用两种方式
- * 呈现查到的片段，哪种生效取决于 App 版本，互为兜底：
- *   1. 尝试把片段写入返回体 data.view_points（章节点字段），若当前 App
- *      版本渲染该字段，进度条上会出现可点击跳转的分段标记。
- *   2. 命中片段时始终推送 Loon 通知，列出各片段时间范围和类型，
- *      即使 1 未生效，用户也能照通知手动拖动进度条跳过。
+ * 本脚本只读嗅探、绝不修改响应体：$done({}) 原样放行，不重新编码 protobuf，
+ * 不存在把视频页面搞挂的风险。代价是无法像旧方案那样把片段写回官方接口
+ * 做进度条标记（gRPC 新接口没有已知可写的等效字段），命中片段时只能
+ * 依赖 Loon 推送通知，用户照通知手动拖动进度条跳过。
  *
  * 开关：Loon 插件参数「开启空降助手」→ 对应 [Script] 行 enable={skip_enabled}。
  * 关闭时 Loon 直接不执行本脚本，不产生任何网络请求。
@@ -24,7 +30,7 @@ const SKIP_LAST_KEY  = "bili_skip_last";
 const CACHE_MAX       = 200;
 const CACHE_TTL_MS    = 12 * 60 * 60 * 1000; // 12 小时
 
-// 默认查询/标记的片段类型，与浏览器版空降助手默认勾选项保持一致
+// 默认查询/提醒的片段类型，与浏览器版空降助手默认勾选项保持一致
 const CATEGORIES = ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview"];
 
 const CATEGORY_LABEL = {
@@ -47,6 +53,15 @@ function fmtTime(sec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function bytesToString(bytes) {
+  let text = "";
+  const CHUNK = 8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    text += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return text;
+}
+
 function readCache() {
   return JSON.parse($persistentStore.read(SKIP_CACHE_KEY) || "{}");
 }
@@ -59,56 +74,51 @@ function writeCache(cache) {
   $persistentStore.write(JSON.stringify(cache), SKIP_CACHE_KEY);
 }
 
-function finish(data, segments, title) {
-  if (Array.isArray(segments) && segments.length > 0 && data && data.data) {
-    const points = segments.map(seg => ({
-      type:       1,
-      from:       seg.start,
-      to:         seg.end,
-      imgUrl:     "",
-      content:    CATEGORY_LABEL[seg.category] || seg.category,
-      logo_index: 0,
-    }));
-    const existing = Array.isArray(data.data.view_points) ? data.data.view_points : [];
-    data.data.view_points = points.concat(existing);
-
-    const lines = segments.map(seg =>
-      `· ${fmtTime(seg.start)}-${fmtTime(seg.end)} ${CATEGORY_LABEL[seg.category] || seg.category}`
-    );
-    $notification.post(
-      "空降助手",
-      `《${title || "当前视频"}》发现 ${segments.length} 处可跳过片段`,
-      lines.join("\n")
-    );
-
-    $persistentStore.write(JSON.stringify({ title, segments, ts: Date.now() }), SKIP_LAST_KEY);
-  }
-  $done({ body: JSON.stringify(data) });
+function notifyAndRecord(segments, bvid) {
+  if (!Array.isArray(segments) || segments.length === 0) return;
+  const lines = segments.map(seg =>
+    `· ${fmtTime(seg.start)}-${fmtTime(seg.end)} ${CATEGORY_LABEL[seg.category] || seg.category}`
+  );
+  $notification.post(
+    "空降助手",
+    `发现 ${segments.length} 处可跳过片段`,
+    `${bvid}\n${lines.join("\n")}`
+  );
+  $persistentStore.write(JSON.stringify({ bvid, segments, ts: Date.now() }), SKIP_LAST_KEY);
 }
 
 (function main() {
-  const rawBody = $response.body;
-  if (!rawBody) return $done({});
+  const raw = $response.body; // binary-body-mode=true → Uint8Array
+  if (!raw || raw.length < 5) return $done({});
 
-  let data;
-  try { data = JSON.parse(rawBody); } catch (_) { return $done({}); }
+  const compressed = raw[0] === 1;
+  const len = ((raw[1] << 24) | (raw[2] << 16) | (raw[3] << 8) | raw[4]) >>> 0;
+  const frame = raw.subarray(5, 5 + len);
 
-  const video = data && data.data;
-  const bvid  = (video && video.bvid) || "";
-  const cid   = String((video && video.cid) || "");
-  if (!bvid || !cid) return $done({});
+  let bytes;
+  try { bytes = compressed ? $utils.ungzip(frame) : frame; } catch (_) { return $done({}); }
+  if (!bytes || bytes.length === 0) return $done({});
 
-  const cacheKey = `${bvid}_${cid}`;
+  const text = bytesToString(bytes);
+  const bvidMatch = text.match(/BV1[0-9A-Za-z]{9}/);
+  if (!bvidMatch) return $done({});
+  const bvid = bvidMatch[0];
+
+  const cidMatch = text.match(/[?&]cid=(\d+)/);
+  const cid = cidMatch ? cidMatch[1] : "";
+
+  const cacheKey = cid ? `${bvid}_${cid}` : bvid;
   const cache = readCache();
   const hit = cache[cacheKey];
 
   if (hit && Date.now() - hit.ts < CACHE_TTL_MS) {
-    return finish(data, hit.segments, video.title);
+    notifyAndRecord(hit.segments, bvid);
+    return $done({});
   }
 
-  const url = `https://bsbsb.top/api/skipSegments?videoID=${encodeURIComponent(bvid)}`
-    + `&cid=${encodeURIComponent(cid)}`
-    + `&categories=${encodeURIComponent(JSON.stringify(CATEGORIES))}`;
+  let url = `https://bsbsb.top/api/skipSegments?videoID=${encodeURIComponent(bvid)}`;
+  if (cid) url += `&cid=${encodeURIComponent(cid)}`;
+  url += `&categories=${encodeURIComponent(JSON.stringify(CATEGORIES))}`;
 
   $httpClient.get({ url }, (err, resp, body) => {
     const status = resp && resp.status;
@@ -134,6 +144,7 @@ function finish(data, segments, title) {
       writeCache(cache);
     }
 
-    finish(data, segments, video.title);
+    notifyAndRecord(segments, bvid);
+    $done({});
   });
 })();

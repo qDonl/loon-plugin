@@ -29,7 +29,7 @@ function fmtTime(sec) {
 function buildSkipLines(skipLast) {
   if (!skipLast || !Array.isArray(skipLast.segments) || skipLast.segments.length === 0) return [];
   const lines = [`\n🛬 空降助手 · 最近命中`];
-  lines.push(`  《${skipLast.title || "未知视频"}》`);
+  lines.push(`  ${skipLast.bvid || "未知视频"}`);
   skipLast.segments.slice(0, 5).forEach(seg => {
     lines.push(`  · ${fmtTime(seg.start)}-${fmtTime(seg.end)} ${CATEGORY_LABEL[seg.category] || seg.category}`);
   });

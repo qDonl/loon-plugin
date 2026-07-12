@@ -118,8 +118,40 @@ function buildGrpcFrame(payload) {
   return out;
 }
 
+// ── 临时诊断：确认 Loon 到底怎么把二进制响应体给脚本 ──────────────────
+// 排查完 $response.bodyBytes 是否可用后，这段连同下面的 diagnose() 调用
+// 一起删掉即可，不是长期功能。
+function inspect(val) {
+  if (val === undefined || val === null) return "absent";
+  const type = Object.prototype.toString.call(val);
+  let len = "?";
+  try { len = val.byteLength !== undefined ? val.byteLength : (val.length !== undefined ? val.length : "?"); } catch (_) {}
+  let preview = "";
+  try {
+    if (typeof val === "string") {
+      preview = Array.prototype.slice.call(val, 0, 6).map(c => c.charCodeAt(0)).join(",");
+    } else {
+      preview = Array.prototype.slice.call(val, 0, 6).join(",");
+    }
+  } catch (_) { preview = "(no preview)"; }
+  return `${type} len=${len} head=[${preview}]`;
+}
+
+function diagnose() {
+  try {
+    const hasResponse = !!$response;
+    const keys = hasResponse ? (() => { try { return Object.keys($response).join(","); } catch (_) { return "(keys unavailable)"; } })() : "";
+    const msg = `resp=${hasResponse} keys=${keys}\nbody: ${inspect($response && $response.body)}\nbodyBytes: ${inspect($response && $response.bodyBytes)}`;
+    $notification.post("诊断:Popular响应结构", msg.slice(0, 300), "");
+  } catch (e) {
+    $notification.post("诊断异常", String((e && e.message) || e), "");
+  }
+}
+
 (function main() {
   try {
+    diagnose(); // 临时：每次都发通知，看完就删
+
     if (!$response || !$response.bodyBytes) return $done({});
 
     const blacklist = JSON.parse($persistentStore.read(UP_BLACKLIST_KEY) || "[]");

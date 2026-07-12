@@ -146,7 +146,7 @@ http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.(app
 # ── 「热门」信息流：按 UP 黑名单过滤（Protobuf 通用字节扫描，见脚本内注释）──
 # 与上面 bilibili.protobuf 规则命中同一 URL，Loon 按声明顺序链式执行，
 # 这条排在后面，接收的是已经过 kokoryh 广告过滤后的 body。
-http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.app\.show\.v1\.Popular\/Index$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/popular-filter.js?v=2, requires-body=true, binary-body-mode=true, timeout=10, enable={filterPopularBlacklist}, tag=bili_blacklist_popular_filter
+http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.app\.show\.v1\.Popular\/Index$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/popular-filter.js?v=3, requires-body=true, binary-body-mode=true, timeout=10, enable={filterPopularBlacklist}, tag=bili_blacklist_popular_filter
 
 # ── 管理页：http://bili.blacklist ────────────────────────────
 http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=5, requires-body=false, timeout=10, tag=bili_blacklist_manage

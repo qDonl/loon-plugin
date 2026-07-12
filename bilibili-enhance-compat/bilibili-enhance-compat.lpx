@@ -149,7 +149,7 @@ http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.(app
 http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.app\.show\.v1\.Popular\/Index$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/popular-filter.js?v=2, requires-body=true, binary-body-mode=true, timeout=10, enable={filterPopularBlacklist}, tag=bili_blacklist_popular_filter
 
 # ── 管理页：http://bili.blacklist ────────────────────────────
-http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=4, requires-body=false, timeout=10, tag=bili_blacklist_manage
+http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=5, requires-body=false, timeout=10, tag=bili_blacklist_manage
 
 # ── 「不感兴趣」拦截 ──────────────────────────────────────────────
 # 真实接口: GET https://app.bilibili.com/x/feed/dislike

@@ -306,11 +306,15 @@ function switchPane(id, el) {
   el.classList.add('active');
   document.getElementById('pane-' + id).classList.add('active');
 }
+function normalizeDigits(s) {
+  return String(s || "")
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)) // 全角数字转半角
+    .replace(/\D/g, ""); // 去掉空格、全角空格、以及任何非数字字符（含输入法可能带进来的不可见字符）
+}
 function addUp() {
-  const upId = document.getElementById('add-up-id').value.trim();
+  const upId = normalizeDigits(document.getElementById('add-up-id').value);
   const upName = document.getElementById('add-up-name').value.trim();
-  if (!upId) { alert('请输入 UP 的 UID'); return; }
-  if (!/^\d+$/.test(upId)) { alert('UID 应为纯数字'); return; }
+  if (!upId) { alert('请输入 UP 的 UID（数字）'); return; }
   fetch(BASE + '/add-up?up_id=' + encodeURIComponent(upId) + '&up_name=' + encodeURIComponent(upName))
     .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error || '添加失败'); });
 }

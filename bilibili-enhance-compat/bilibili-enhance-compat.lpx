@@ -70,7 +70,10 @@
 #
 #  管理黑名单：Loon 运行时在 Safari 访问 http://bili.blacklist，
 #  或 Loon → 插件 → 本插件 → 点击「主页」。管理页提供 UP主/分区
-#  两个 Tab，支持单条移除和一键清空。
+#  两个 Tab，支持单条移除和一键清空。UP主 Tab 顶部有手动添加/更新入口，
+#  可以直接填 UID + 名称手动拉黑（不经过 App 里的任何拦截路径），UID
+#  已存在时只更新名称，不会重复添加——也可以用来给拦截生成、但没拿到
+#  名字的黑名单条目补全 up_name。
 #
 # ── 黑名单持久化存储（$persistentStore）──────────────────────────
 #
@@ -146,7 +149,7 @@ http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.(app
 http-response ^https:\/\/(grpc\.biliapi\.net|app\.bilibili\.com)\/bilibili\.app\.show\.v1\.Popular\/Index$ script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/popular-filter.js?v=2, requires-body=true, binary-body-mode=true, timeout=10, enable={filterPopularBlacklist}, tag=bili_blacklist_popular_filter
 
 # ── 管理页：http://bili.blacklist ────────────────────────────
-http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=3, requires-body=false, timeout=10, tag=bili_blacklist_manage
+http-request http://bili\.blacklist.* script-path=https://raw.githubusercontent.com/qDonl/loon-plugin/main/bilibili-enhance-compat/scripts/manage.js?v=4, requires-body=false, timeout=10, tag=bili_blacklist_manage
 
 # ── 「不感兴趣」拦截 ──────────────────────────────────────────────
 # 真实接口: GET https://app.bilibili.com/x/feed/dislike

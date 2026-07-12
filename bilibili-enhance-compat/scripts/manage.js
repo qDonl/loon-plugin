@@ -6,6 +6,8 @@
  *
  * 路由:
  *   GET /              → 管理主页（UP主 / 分区 / 名称缓存 三个 tab）
+ *   GET /add-up        → 手动添加/更新 UP   ?up_id=xxx&up_name=yyy（up_name 可留空）
+ *                         up_id 已存在时只更新 up_name（非空才覆盖），不会重复添加
  *   GET /remove-up     → 移除单个 UP       ?up_id=xxx
  *   GET /remove-part   → 移除单个分区       ?tid=xxx
  *   GET /clear-up      → 清空 UP 黑名单
@@ -45,6 +47,20 @@ const META_MAP_KEY       = "bili_aid_meta_map";
     if (found) { u.up_name = found; needsSave = true; }
   });
   if (needsSave) $persistentStore.write(JSON.stringify(upList), UP_BLACKLIST_KEY);
+
+  if (pathFull.endsWith("/add-up")) {
+    const upId   = (params.up_id   || "").trim();
+    const upName = (params.up_name || "").trim();
+    if (!upId) return jsonDone({ success: false, error: "missing up_id" });
+    const existing = upList.find(u => String(u.up_id) === upId);
+    if (existing) {
+      if (upName) existing.up_name = upName;
+    } else {
+      upList.push({ up_id: upId, up_name: upName, source: "manual", added_at: new Date().toISOString() });
+    }
+    $persistentStore.write(JSON.stringify(upList), UP_BLACKLIST_KEY);
+    return jsonDone({ success: true, count: upList.length });
+  }
 
   if (pathFull.endsWith("/remove-up")) {
     const upId = params.up_id;
@@ -221,6 +237,10 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
 .tip h3{font-size:14px;font-weight:600;margin-bottom:10px;color:#1c1c1e}
 .tip li{font-size:14px;color:#444;line-height:2;margin-left:18px}
 .cache-tip{margin:16px 16px 0;background:#fff3cd;border-radius:12px;padding:14px 16px;font-size:13px;color:#856404;line-height:1.6}
+.add-form{margin:16px 16px 0;background:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.add-form input{padding:10px 12px;border:1px solid rgba(0,0,0,.08);border-radius:8px;font-size:15px;background:#f9f9fb;color:#1c1c1e}
+.add-form input::placeholder{color:#c7c7cc}
+.add-btn{padding:12px;background:#fb7299;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
 </style>
 </head>
 <body>
@@ -237,6 +257,11 @@ body{font-family:-apple-system,sans-serif;background:#f2f2f7;color:#1c1c1e;paddi
 </div>
 
 <div id="pane-up" class="pane active">
+  <div class="add-form">
+    <input type="text" id="add-up-id" placeholder="UP UID（必填，纯数字）" inputmode="numeric">
+    <input type="text" id="add-up-name" placeholder="UP 名称（选填，UID 已存在则更新名称）">
+    <button class="add-btn" onclick="addUp()">添加 / 更新</button>
+  </div>
   ${upCard}
   <div class="actions">${upClearBtn}</div>
   <div class="tip">
@@ -280,6 +305,14 @@ function switchPane(id, el) {
   document.querySelectorAll('.pane').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('pane-' + id).classList.add('active');
+}
+function addUp() {
+  const upId = document.getElementById('add-up-id').value.trim();
+  const upName = document.getElementById('add-up-name').value.trim();
+  if (!upId) { alert('请输入 UP 的 UID'); return; }
+  if (!/^\d+$/.test(upId)) { alert('UID 应为纯数字'); return; }
+  fetch(BASE + '/add-up?up_id=' + encodeURIComponent(upId) + '&up_name=' + encodeURIComponent(upName))
+    .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error || '添加失败'); });
 }
 function delUp(uid, name) {
   if (!confirm('确认移除 UP「' + name + '」？')) return;

@@ -1,0 +1,80 @@
+#!name = 丰巢小程序去广告
+#!desc = 微信小程序「丰巢」去广告：拦截丰巢自有 DSP 广告位、微信流量主广告位下发与广告素材、首页/个人中心营销运营位及弹窗、前端埋点上报。
+#!author = qDonl
+#!homepage = https://github.com/qDonl/loon-plugin
+#!tag = 去广告
+#!system = iOS,iPadOS
+#!system_version = 15
+#!loon_version = 3.5.1(978)
+#!date = 2026-09-27
+
+# ============================================================
+# 语法：Loon 3.5.1(978) 起的新版 Rewrite（<phase> if <cond> then <action>）
+# 本插件只用 Rewrite，不含脚本。
+#
+# 广告来源（依据 2026-09-27 ProxyPin 抓包，小程序 appid wxf953eb11611bb594）：
+#
+#  A. 丰巢自有 DSP（dsp.fcbox.com）
+#     adSearch/get、adSearch/getMulti 按 adSlotCode 取广告，adTracker/stat
+#     做曝光/点击上报，素材在 ad-dsp-1251779293.*.myqcloud.com。
+#     → 在请求发出前直接 mock 空结果（data:null 是服务端无广告时的原样
+#       返回，前端能正常处理），并把 extendsMap.wxAdsFlag 置为 "false"，
+#       尝试关闭「DSP 无广告时回落到微信广告」的逻辑（语义为推测）。
+#
+#  B. 微信流量主（广点通）
+#     webchatapp.fcbox.com/commerce/mobile/appConfig/getPositions 下发
+#     adunit-xxxx 广告单元 ID（首页 Banner 第二帧、订单列表 Banner 第三帧），
+#     小程序据此渲染 <ad> 组件。真正拉广告的请求走微信私有 mmtls 通道，
+#     MITM 看不到，所以：
+#       ① getPositions 返回空数组 → 小程序不渲染广告组件（治本）；
+#       ② 兜底拒绝 wximg.wxs.qq.com/<n>/20204/sns{cos,svp}download 广告
+#          素材图（开关控制，对整个微信的广告素材都生效，包括朋友圈广告）。
+#     代码里写死 adunit 的插屏广告不经过 getPositions，只能靠 ② 兜底，
+#     可能残留空白广告框。
+#
+#  C. 营销运营位与弹窗（开关控制）
+#     首页头图、「开通会员」横条、成长体系横条、底部中间「会员直降」tab、
+#     个人中心 banner、取件列表顶部会员推广、各类营销弹窗、满意度问卷。
+#     金刚区（jinGangFirst）、储物模块等功能入口不动。
+#
+#  D. 埋点：hugelog.fcbox.com 前端日志上报，直接 REJECT。
+# ============================================================
+
+[Argument]
+block_wx_ad_image = switch,true,tag=拦截微信广告素材图,desc=拒绝 wximg.wxs.qq.com 上的广告素材图片与视频封面。作用于整个微信（含朋友圈广告），关闭后仅依赖广告位下发拦截
+block_marketing = switch,true,tag=拦截营销运营位与弹窗,desc=首页头图、会员横条、底部「会员直降」tab、个人中心 banner、取件列表会员推广、营销弹窗、满意度问卷。页面若出现异常可先关闭此项排查
+
+[Rule]
+# D. 埋点
+DOMAIN,hugelog.fcbox.com,REJECT
+# A. DSP 广告素材 CDN（广告位已 mock 为空，此处兜底）
+DOMAIN,ad-dsp-1251779293.file.myqcloud.com,REJECT
+DOMAIN,ad-dsp-1251779293.cos.ap-guangzhou.myqcloud.com,REJECT
+
+[Rewrite]
+# ── A. 丰巢 DSP ─────────────────────────────────────────────
+response if ${url} ~= /^https:\/\/dsp\.fcbox\.com\/adSearch\/get(Multi)?\?/ then response.body.mock("json", `{"code":"370100000","msg":"操作成功","data":null,"extendsMap":{"wxAdsFlag":"false","fcDspFlag":"true","interstitialErrSwitch":"true"},"extendsData":null}`, 200)
+request if ${url} ~= /^https:\/\/dsp\.fcbox\.com\/adTracker\// then reject_dict(200)
+
+# ── B. 微信流量主 ───────────────────────────────────────────
+response if ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/commerce\/mobile\/appConfig\/getPositions/ then response.body.mock("json", `{"success":true,"code":200100000,"msg":"操作成功","data":[]}`, 200)
+request if ${block_wx_ad_image} == true && ${url} ~= /^https?:\/\/wximg\.wxs\.qq\.com\/\d+\/20204\/sns(cos|svp)download\// then reject_img(200)
+
+# ── C. 营销运营位 ───────────────────────────────────────────
+# 首页头图 / 取件卡片会员横条 / 成长体系横条（同系列接口无配置时本就返回 data:null）
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/api\/v2\/clientPage\/(topImg|homePickUpCardMarketingAggregated|guideMemberRenewalModule)\?/ then response.json.replace("data", null)
+# 底部中间「会员直降」tab（homePageConfig 是 JSON 字符串，用正则改内部字段）
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/api\/v2\/clientPage\/getUserClientPageInfo\?/ then response.body.replace(/\\"showMiddleTab\\":true/, "\\\"showMiddleTab\\\":false")
+# 个人中心大 banner（bannerList）+ 小推广图（source.list），保留 functionList 功能入口
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/api\/v2\/clientPage\/personalCenterPage\?/ then response.body.replace([/\\"bannerList\\":\[[^\]]*\]/, /\\"list\\":\[[^\]]*\]/], ["\\\"bannerList\\\":[]", "\\\"list\\\":[]"])
+# 取件列表顶部会员推广
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/post\/suggestion\/query/ then response.json.replace("data.top", null)
+
+# ── C. 弹窗与问卷 ───────────────────────────────────────────
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/marketingEntrance\/(info|orderListPageRemindPopup)/ then response.json.replace("data", null)
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/clothingcare\/h5\/popup\/activity/ then response.json.replace("data", null)
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/ugc\/user\/tier\/popUp\/query/ then response.json.replace("data.isPop", false)
+response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/acs\/cemUserEvaluate\/getTriggerInfo/ then response.json.jq(".data = [] | .count = 0")
+
+[MITM]
+hostname = dsp.fcbox.com, webchatapp.fcbox.com, wximg.wxs.qq.com

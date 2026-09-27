@@ -1,16 +1,17 @@
 #!name = 丰巢小程序去广告
-#!desc = 微信小程序「丰巢」去广告：拦截丰巢自有 DSP 广告位、微信流量主广告位下发与广告素材、首页/个人中心营销运营位及弹窗、前端埋点上报。
+#!desc = 微信小程序「丰巢」去广告：无开屏广告入口（Safari 访问 http://fcbox.open 或点「主页」）、拦截丰巢自有 DSP 广告位、微信流量主广告位下发与广告素材、首页/个人中心营销运营位及弹窗、前端埋点上报。
 #!author = qDonl
-#!homepage = https://github.com/qDonl/loon-plugin
+#!homepage = http://fcbox.open
 #!tag = 去广告
 #!system = iOS,iPadOS
 #!system_version = 15
-#!loon_version = 3.5.1(978)
+#!loon_version = 3.5.1(983)
 #!date = 2026-09-27
 
 # ============================================================
-# 语法：Loon 3.5.1(978) 起的新版 Rewrite（<phase> if <cond> then <action>）
-# 本插件只用 Rewrite，不含脚本。
+# 语法：Loon 3.5.1(978) 起的新版 Rewrite、3.5.1(983) 起的新版 Script
+#（<phase> if <cond> then <action>）。
+# 广告拦截全部用 Rewrite；唯一的脚本是无开屏广告入口（见 E）。
 #
 # 广告来源（依据 2026-09-27 ProxyPin 抓包，小程序 appid wxf953eb11611bb594）：
 #
@@ -36,8 +37,7 @@
 #
 #     小程序「封面广告」（进入时的开屏广告，带「跳过」倒计时）由微信客户端
 #     在小程序启动前展示，广告数据走 mmtls，抓包中完全不可见；②③ 只能让
-#     素材加载失败变黑，广告框与倒计时无法去除。官方 isShowSplashAd=false
-#     播控参数需要丰巢开放明文 URL Scheme，实测未开放（页面无法访问）。
+#     素材加载失败变黑，广告框与倒计时无法在网络层去除 → 改为换入口，见 E。
 #
 #  C. 营销运营位与弹窗（开关控制）
 #     首页头图、「开通会员」横条、成长体系横条、底部中间「会员直降」tab、
@@ -47,12 +47,26 @@
 #     写死的原生 tab，接口中不存在，无法去除。
 #
 #  D. 埋点：hugelog.fcbox.com 前端日志上报，直接 REJECT。
+#
+#  E. 无开屏广告入口：http://fcbox.open
+#     丰巢自己的 H5 中转页通过 webchatapp.fcbox.com/base/wechatFunc/getMiniScheme
+#     生成加密 URL Scheme（weixin://dl/business/?t=xxx）拉起小程序。实测
+#     （2026-09-27，冷启动，A/B/C 三组）经该 Scheme 进入均不展示封面广告。
+#     scripts/launch.js 复现中转页签名、获取 Scheme 并返回自动跳转页，
+#     有效期内缓存复用。落地页为保洁清洗主页（接口未开放直达首页的
+#     functionCode），进入后点底部「首页」即可。
+#     用法：Loon 运行中，Safari 访问 http://fcbox.open，可「添加到主屏幕」。
+#     （明文 Scheme weixin://dl/business/?appid=… 丰巢未开放，实测无法访问。）
 # ============================================================
 
 [Argument]
 block_wx_ad_image = switch,true,tag=拦截微信广告素材图,desc=拒绝 wximg.wxs.qq.com 上的广告素材图片与视频封面。作用于整个微信（含朋友圈广告），关闭后仅依赖广告位下发拦截
 remove_wash_icon = switch,true,tag=去除首页「洗衣洗鞋」图标,desc=从首页图标行（金刚区）移除「洗衣洗鞋」入口，其余图标保留。底部导航栏的同名 tab 为小程序内置，无法去除
 block_marketing = switch,true,tag=拦截营销运营位与弹窗,desc=首页头图、会员横条、底部「会员直降」tab、个人中心 banner、取件列表会员推广、营销弹窗、满意度问卷。页面若出现异常可先关闭此项排查
+
+[Host]
+# fcbox.open 仅用于让 Safari DNS 不报错；Loon 在建连前由脚本直接返回页面
+fcbox.open = 127.0.0.1
 
 [Rule]
 # D. 埋点
@@ -94,6 +108,10 @@ response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbo
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/clothingcare\/h5\/popup\/activity/ then response.json.replace("data", null)
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/ugc\/user\/tier\/popUp\/query/ then response.json.replace("data.isPop", false)
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/acs\/cemUserEvaluate\/getTriggerInfo/ then response.json.jq(".data = [] | .count = 0")
+
+[Script]
+# E. 无开屏广告入口
+request if ${url} ~= /^http:\/\/fcbox\.open/ then script("https://raw.githubusercontent.com/qDonl/loon-plugin/main/fengchao/scripts/launch.js") with tag="fcbox_launch", timeout=10
 
 [MITM]
 hostname = dsp.fcbox.com, webchatapp.fcbox.com, wximg.wxs.qq.com

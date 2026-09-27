@@ -12,18 +12,23 @@
  * 按 time 的前 10 位数字作为下标取字符。
  * Scheme 有效期由接口返回（目前 86400 秒），有效期内缓存复用，与中转页行为一致。
  *
- * 落地页：functionCode=fcRepairHomePage（保洁清洗主页）。接口只开放了少数几个
- * functionCode，没有直达首页的，进入后点底部「首页」即可。
+ * 落地页由 functionCode 决定（后台配置，没有直达首页的）。已探测可用的：
+ *   fcRepairHomePage（保洁清洗主页）、fcOrderIndex、fcboxSendIndex、storageIndex、
+ *   couponIndex、fcVipCenter、clothingcare / clothingcareHome / clothingcareList /
+ *   clothingcareDetail、couponActivity。
+ * 默认 DEFAULT_CODE；测试时可用 http://fcbox.open/?code=<functionCode> 临时指定。
  */
 
-const FUNCTION_CODE = "fcRepairHomePage";
-const CUSTOM_PARAM = JSON.stringify({ channelId: "xhziyuanwei01", isShowSplashAd: "false" });
+const DEFAULT_CODE = "fcRepairHomePage";
+const CUSTOM_PARAM = JSON.stringify({ isShowSplashAd: "false" });
 const CACHE_KEY = "fcbox_launch_scheme";
-const CACHE_MARGIN_MS = 10 * 60 * 1000; // 剩余不足 10 分钟就重新获取
+const CACHE_MARGIN_MS = 10 * 60 * 1000; // 剩余不足 10 分钟（或不足有效期一半）就重新获取
 const API = "https://webchatapp.fcbox.com/base/wechatFunc/getMiniScheme";
 
 (function main() {
-  const cached = readCache();
+  const m = ($request.url || "").match(/[?&]code=([A-Za-z0-9_]+)/);
+  const FUNCTION_CODE = m ? m[1] : DEFAULT_CODE;
+  const cached = readCache(FUNCTION_CODE);
   if (cached) return htmlDone(page(cached, ""));
 
   const time = String(Date.now());
@@ -46,18 +51,28 @@ const API = "https://webchatapp.fcbox.com/base/wechatFunc/getMiniScheme";
     try { json = JSON.parse(data); } catch (e) { return htmlDone(page("", "接口返回无法解析：" + String(data).slice(0, 200))); }
     const url = json && json.data && json.data.url;
     if (json.code !== 300100000 || !url) return htmlDone(page("", "接口返回异常：" + (json.msg || String(data).slice(0, 200))));
-    const expireMs = Date.now() + (Number(json.data.expire) || 0) * 1000;
-    $persistentStore.write(JSON.stringify({ url: url, expire: expireMs }), CACHE_KEY);
+    const ttlMs = (Number(json.data.expire) || 0) * 1000;
+    writeCache(FUNCTION_CODE, { url: url, expire: Date.now() + ttlMs, margin: Math.min(CACHE_MARGIN_MS, ttlMs / 2) });
     htmlDone(page(url, ""));
   });
 })();
 
-function readCache() {
+function loadCache() {
   try {
-    const c = JSON.parse($persistentStore.read(CACHE_KEY) || "null");
-    if (c && c.url && c.expire - Date.now() > CACHE_MARGIN_MS) return c.url;
-  } catch (e) {}
-  return "";
+    const c = JSON.parse($persistentStore.read(CACHE_KEY) || "{}");
+    return c && typeof c === "object" && !c.url ? c : {}; // 兼容旧版单条缓存格式
+  } catch (e) { return {}; }
+}
+
+function readCache(code) {
+  const c = loadCache()[code];
+  return c && c.url && c.expire - Date.now() > c.margin ? c.url : "";
+}
+
+function writeCache(code, entry) {
+  const all = loadCache();
+  all[code] = entry;
+  $persistentStore.write(JSON.stringify(all), CACHE_KEY);
 }
 
 function htmlDone(html) {
@@ -69,7 +84,7 @@ function page(scheme, err) {
   const main = scheme
     ? '<p>正在打开微信…</p><a class="btn" href="' + esc(scheme) + '">打开丰巢小程序</a>' +
       '<script>location.href=' + JSON.stringify(scheme) + '</script>'
-    : '<p class="err">' + esc(err) + '</p><a class="btn" href="/">重试</a>';
+    : '<p class="err">' + esc(err) + '</p><a class="btn" href="javascript:location.reload()">重试</a>';
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="apple-mobile-web-app-title" content="丰巢">' +

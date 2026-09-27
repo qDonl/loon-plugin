@@ -38,6 +38,12 @@
 #     小程序「封面广告」（进入时的开屏广告，带「跳过」倒计时）由微信客户端
 #     在小程序启动前展示，广告数据走 mmtls，抓包中完全不可见；②③ 只能让
 #     素材加载失败变黑，广告框与倒计时无法在网络层去除 → 改为换入口，见 E。
+#     已验证无效的尝试（2026-09-27，Loon 抓包）：启动前微信只有 extshort /
+#     minorshort.weixin.qq.com 的 /mmtls/ 加密短连接（请求头一致、路径随机、
+#     Body 加密，无法单独识别广告请求）。整体拒绝这两个通道：不清缓存时广告
+#     照常出现（走本地缓存）；清缓存后小程序因启动/登录请求失败而无法打开或
+#     报网络异常。广告与小程序启动共用通道，无法只拦广告；长连接与聊天共用，
+#     不可拦。结论：从微信下拉等常规入口进入时，开屏广告只能手动跳过。
 #
 #  C. 营销运营位与弹窗（开关控制）
 #     首页头图、「开通会员」横条、成长体系横条、底部中间「会员直降」tab、
@@ -62,8 +68,6 @@
 [Argument]
 block_wx_ad_image = switch,true,tag=拦截微信广告素材图,desc=拒绝 wximg.wxs.qq.com 上的广告素材图片与视频封面。作用于整个微信（含朋友圈广告），关闭后仅依赖广告位下发拦截
 remove_wash_icon = switch,true,tag=去除首页「洗衣洗鞋」图标,desc=从首页图标行（金刚区）移除「洗衣洗鞋」入口，其余图标保留。底部导航栏的同名 tab 为小程序内置，无法去除
-exp_block_minorshort = switch,false,tag=实验：拦截微信 minorshort 加密短连接,desc=拒绝 minorshort.weixin.qq.com 的 /mmtls/ 请求，用于测试能否去除小程序开屏广告。作用于整个微信，可能影响部分功能，测试完请关闭
-exp_block_extshort = switch,false,tag=实验：拦截微信 extshort 加密短连接,desc=拒绝 extshort.weixin.qq.com 的 /mmtls/ 请求，用于测试能否去除小程序开屏广告。作用于整个微信，风险高于 minorshort（可能影响消息、支付等），测试完请关闭
 block_marketing = switch,true,tag=拦截营销运营位与弹窗,desc=首页头图、会员横条、底部「会员直降」tab、个人中心 banner、取件列表会员推广、营销弹窗、满意度问卷。页面若出现异常可先关闭此项排查
 
 [Host]
@@ -90,13 +94,6 @@ request if ${url} ~= /^https:\/\/dsp\.fcbox\.com\/adTracker\// then reject_dict(
 # ── B. 微信流量主 ───────────────────────────────────────────
 response if ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/commerce\/mobile\/appConfig\/getPositions/ then response.body.mock("json", `{"success":true,"code":200100000,"msg":"操作成功","data":[]}`, 200)
 request if ${block_wx_ad_image} == true && ${url} ~= /^https?:\/\/wximg\.wxs\.qq\.com\/\d+\/20204\/sns(cos|svp)download\// then reject_img(200)
-
-# ── B④. 实验：微信加密短连接（默认关闭）────────────────────
-# 封面广告数据走 mmtls，请求头一致、路径为随机值、Body 加密，无法单独识别。
-# 这里整体拒绝短连接通道（明文 HTTP/80，无需 MITM），观察微信是否回退长连接、
-# 开屏广告是否消失。仅匹配 /mmtls/ 路径，不影响微信官网。
-request if ${exp_block_minorshort} == true && ${url} ~= /^http:\/\/minorshort\.weixin\.qq\.com\/mmtls\// then reject(502)
-request if ${exp_block_extshort} == true && ${url} ~= /^http:\/\/extshort\.weixin\.qq\.com\/mmtls\// then reject(502)
 
 # ── C. 营销运营位 ───────────────────────────────────────────
 # 首页头图 / 取件卡片会员横条 / 成长体系横条（同系列接口无配置时本就返回 data:null）

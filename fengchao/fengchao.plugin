@@ -29,19 +29,29 @@
 #       ① getPositions 返回空数组 → 小程序不渲染广告组件（治本）；
 #       ② 兜底拒绝 wximg.wxs.qq.com/<n>/20204/sns{cos,svp}download 广告
 #          素材图（开关控制，对整个微信的广告素材都生效，包括朋友圈广告）。
-#     代码里写死 adunit 的插屏广告不经过 getPositions，只能靠 ② 兜底，
+#       ③ 拒绝社区通用的微信广告素材域名 wxsnsdy / wxsnsdythumb / wxsmw
+#          (wxs.qq.com)、wxsmsdy.video.qq.com（同样作用于整个微信）。
+#     代码里写死 adunit 的插屏广告不经过 getPositions，只能靠 ②③ 兜底，
 #     可能残留空白广告框。
+#
+#     小程序「封面广告」（进入时的开屏广告，带「跳过」倒计时）由微信客户端
+#     在小程序启动前展示，广告数据走 mmtls，抓包中完全不可见；②③ 只能让
+#     素材加载失败变黑，广告框与倒计时无法去除。官方 isShowSplashAd=false
+#     播控参数需要丰巢开放明文 URL Scheme，实测未开放（页面无法访问）。
 #
 #  C. 营销运营位与弹窗（开关控制）
 #     首页头图、「开通会员」横条、成长体系横条、底部中间「会员直降」tab、
 #     个人中心 banner、取件列表顶部会员推广、各类营销弹窗、满意度问卷。
-#     金刚区（jinGangFirst）、储物模块等功能入口不动。
+#     金刚区（jinGangFirst）只去掉「洗衣洗鞋」图标（单独开关），其余入口不动。
+#     底部导航栏的「洗衣洗鞋」tab（/pages/washHome/index）是小程序代码里
+#     写死的原生 tab，接口中不存在，无法去除。
 #
 #  D. 埋点：hugelog.fcbox.com 前端日志上报，直接 REJECT。
 # ============================================================
 
 [Argument]
 block_wx_ad_image = switch,true,tag=拦截微信广告素材图,desc=拒绝 wximg.wxs.qq.com 上的广告素材图片与视频封面。作用于整个微信（含朋友圈广告），关闭后仅依赖广告位下发拦截
+remove_wash_icon = switch,true,tag=去除首页「洗衣洗鞋」图标,desc=从首页图标行（金刚区）移除「洗衣洗鞋」入口，其余图标保留。底部导航栏的同名 tab 为小程序内置，无法去除
 block_marketing = switch,true,tag=拦截营销运营位与弹窗,desc=首页头图、会员横条、底部「会员直降」tab、个人中心 banner、取件列表会员推广、营销弹窗、满意度问卷。页面若出现异常可先关闭此项排查
 
 [Rule]
@@ -50,6 +60,11 @@ DOMAIN,hugelog.fcbox.com,REJECT
 # A. DSP 广告素材 CDN（广告位已 mock 为空，此处兜底）
 DOMAIN,ad-dsp-1251779293.file.myqcloud.com,REJECT
 DOMAIN,ad-dsp-1251779293.cos.ap-guangzhou.myqcloud.com,REJECT
+# B③. 微信广告素材 CDN（作用于整个微信：小程序封面广告、朋友圈/公众号广告等）
+DOMAIN,wxsnsdy.wxs.qq.com,REJECT
+DOMAIN,wxsnsdythumb.wxs.qq.com,REJECT
+DOMAIN,wxsmw.wxs.qq.com,REJECT
+DOMAIN,wxsmsdy.video.qq.com,REJECT
 
 [Rewrite]
 # ── A. 丰巢 DSP ─────────────────────────────────────────────
@@ -69,6 +84,10 @@ response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbo
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/api\/v2\/clientPage\/personalCenterPage\?/ then response.body.replace([/\\"bannerList\\":\[[^\]]*\]/, /\\"list\\":\[[^\]]*\]/], ["\\\"bannerList\\\":[]", "\\\"list\\\":[]"])
 # 取件列表顶部会员推广
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/post\/suggestion\/query/ then response.json.replace("data.top", null)
+
+# 首页金刚区去掉「洗衣洗鞋」（goldList 在 homePageConfig 字符串内，项为扁平对象；
+# 先删「项+后逗号」，若它是最后一项则删「前逗号+项」）
+response if ${remove_wash_icon} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/api\/v2\/clientPage\/jinGangFirst\?/ then response.body.replace([/\{[^{}]*\\"iconName\\":\\"洗衣洗鞋\\"[^{}]*\},/, /,\{[^{}]*\\"iconName\\":\\"洗衣洗鞋\\"[^{}]*\}/], ["", ""])
 
 # ── C. 弹窗与问卷 ───────────────────────────────────────────
 response if ${block_marketing} == true && ${url} ~= /^https:\/\/webchatapp\.fcbox\.com\/fcboxactivityweb\/marketingEntrance\/(info|orderListPageRemindPopup)/ then response.json.replace("data", null)
